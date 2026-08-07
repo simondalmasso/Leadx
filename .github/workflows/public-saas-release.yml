@@ -1,0 +1,171 @@
+name: LeadX Public SaaS Workers-first Release
+
+on:
+  push:
+    branches: [feat/public-freemium-v1]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leadx-public-production-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: startsWith(github.event.head_commit.message, 'release(public):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      LEADX_BASE_URL: https://leadx.simondalmasso44.workers.dev
+      WRANGLER_VERSION: '4.111.0'
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          echo "RELEASE_SOURCE_SHA=$GITHUB_SHA"
+
+      - name: Pre-deploy validation
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+          npm --prefix web test
+          npm --prefix web run typecheck
+          node --check worker/runtime.mjs
+          npx --yes wrangler@${WRANGLER_VERSION} deploy --dry-run --outdir /tmp/leadx-public-bundle
+
+      - name: Install browser smoke tooling
+        run: |
+          npm --prefix web install --no-save --package-lock=false @playwright/test@1.51.1
+          cd web
+          npx playwright install --with-deps chromium
+
+      - name: Deploy once, validate, purge legacy KV and verify
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          ARTIFACT_DIR="$RUNNER_TEMP/leadx-release"
+          mkdir -p "$ARTIFACT_DIR"
+
+          deployments() {
+            curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/leadx/deployments"
+          }
+
+          deployments > "$ARTIFACT_DIR/before.json"
+          jq -e '.success == true and (.result | length) > 0' "$ARTIFACT_DIR/before.json" >/dev/null
+          PREVIOUS_DEPLOYMENT_ID="$(jq -r '.result[0].id' "$ARTIFACT_DIR/before.json")"
+          PREVIOUS_VERSION_ID="$(jq -r '.result[0].versions[] | select(.percentage == 100) | .version_id' "$ARTIFACT_DIR/before.json" | head -n1)"
+          test -n "$PREVIOUS_DEPLOYMENT_ID"
+          test -n "$PREVIOUS_VERSION_ID"
+
+          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$ARTIFACT_DIR/kv-before.json"
+          jq '[.[].name | select(startswith("lx:") | not)]' "$ARTIFACT_DIR/kv-before.json" > "$ARTIFACT_DIR/legacy-keys.json"
+          LEGACY_KEY_COUNT="$(jq 'length' "$ARTIFACT_DIR/legacy-keys.json")"
+          echo "LEGACY_KV_KEYS_BEFORE=$LEGACY_KEY_COUNT"
+
+          rollback() {
+            echo "ROLLBACK_REQUESTED=YES"
+            npx --yes wrangler@${WRANGLER_VERSION} rollback "$PREVIOUS_VERSION_ID" --message "LeadX automatic rollback: public SaaS release smoke failed"
+            for _ in $(seq 1 60); do
+              deployments > "$ARTIFACT_DIR/rollback.json"
+              restored="$(jq -r '.result[0].versions[] | select(.percentage == 100) | .version_id' "$ARTIFACT_DIR/rollback.json" | head -n1)"
+              if [ "$restored" = "$PREVIOUS_VERSION_ID" ]; then
+                echo "ROLLBACK_STATE=completed"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "ROLLBACK_STATE=failed"
+            return 1
+          }
+
+          echo "PREVIOUS_DEPLOYMENT_ID=$PREVIOUS_DEPLOYMENT_ID"
+          echo "PREVIOUS_VERSION_ID=$PREVIOUS_VERSION_ID"
+          echo "DEPLOY_ATTEMPT=1"
+
+          set +e
+          npx --yes wrangler@${WRANGLER_VERSION} deploy 2>&1 | tee "$ARTIFACT_DIR/deploy.log"
+          DEPLOY_EXIT=${PIPESTATUS[0]}
+          set -e
+          if [ "$DEPLOY_EXIT" -ne 0 ]; then
+            echo "DEPLOY_STATE=failed_before_verification"
+            exit "$DEPLOY_EXIT"
+          fi
+
+          NEW_DEPLOYMENT_ID=""
+          NEW_VERSION_ID=""
+          for _ in $(seq 1 90); do
+            deployments > "$ARTIFACT_DIR/after.json"
+            candidate_deployment="$(jq -r '.result[0].id' "$ARTIFACT_DIR/after.json")"
+            candidate_version="$(jq -r '.result[0].versions[] | select(.percentage == 100) | .version_id' "$ARTIFACT_DIR/after.json" | head -n1)"
+            version_count="$(jq '.result[0].versions | length' "$ARTIFACT_DIR/after.json")"
+            if [ "$candidate_deployment" != "$PREVIOUS_DEPLOYMENT_ID" ] && [ "$version_count" = "1" ] && [ -n "$candidate_version" ]; then
+              NEW_DEPLOYMENT_ID="$candidate_deployment"
+              NEW_VERSION_ID="$candidate_version"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$NEW_DEPLOYMENT_ID" ] || [ -z "$NEW_VERSION_ID" ]; then
+            rollback
+            exit 1
+          fi
+
+          echo "NEW_DEPLOYMENT_ID=$NEW_DEPLOYMENT_ID"
+          echo "NEW_VERSION_ID=$NEW_VERSION_ID"
+
+          smoke_ok=true
+          curl -fsS "$LEADX_BASE_URL/api/health?release=$GITHUB_SHA" > "$ARTIFACT_DIR/health.json" || smoke_ok=false
+          if $smoke_ok; then jq -e '.status == "ok" and .service == "leadx" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100' "$ARTIFACT_DIR/health.json" >/dev/null || smoke_ok=false; fi
+          curl -fsS "$LEADX_BASE_URL/api/auth/session?release=$GITHUB_SHA" > "$ARTIFACT_DIR/session.json" || smoke_ok=false
+          if $smoke_ok; then jq -e '.authenticated == false and .mode == "preview"' "$ARTIFACT_DIR/session.json" >/dev/null || smoke_ok=false; fi
+          if $smoke_ok; then
+            (cd web && npx playwright test scripts/public-production-smoke.spec.mjs --workers=1) 2>&1 | tee "$ARTIFACT_DIR/browser.log" || smoke_ok=false
+          fi
+
+          if ! $smoke_ok; then
+            rollback
+            exit 1
+          fi
+          echo "PRE_PURGE_PRODUCTION_SMOKE=PASS"
+
+          if [ "$LEGACY_KEY_COUNT" -gt 0 ]; then
+            npx --yes wrangler@${WRANGLER_VERSION} kv bulk delete "$ARTIFACT_DIR/legacy-keys.json" --binding LEADX_KV --remote --force
+          fi
+          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$ARTIFACT_DIR/kv-after.json"
+          REMAINING_LEGACY="$(jq '[.[].name | select(startswith("lx:") | not)] | length' "$ARTIFACT_DIR/kv-after.json")"
+          test "$REMAINING_LEGACY" = "0"
+
+          curl -fsS "$LEADX_BASE_URL/api/health?post_purge=$GITHUB_SHA" | jq -e '.release == "leadx-public-freemium-v1" and .free_contact_limit == 100' >/dev/null
+          curl -fsS "$LEADX_BASE_URL/api/auth/session?post_purge=$GITHUB_SHA" | jq -e '.authenticated == false and .mode == "preview"' >/dev/null
+          echo "LEGACY_KV_KEYS_PURGED=$LEGACY_KEY_COUNT"
+          echo "REMAINING_LEGACY_KV_KEYS=0"
+          echo "POST_PURGE_SMOKE=PASS"
+          echo "PRODUCTION_RELEASE=PASS"
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leadx-public-release-${{ github.sha }}
+          path: ${{ runner.temp }}/leadx-release
+          if-no-files-found: warn
+          retention-days: 14
