@@ -68,10 +68,22 @@ jobs:
             curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/leadx/deployments"
           }
 
+          deployments_jq='
+            def deployments:
+              if (.result | type) == "array" then
+                .result
+              elif (.result | type) == "object"
+                   and (.result.deployments | type) == "array" then
+                .result.deployments
+              else
+                error("Unexpected Cloudflare deployments response schema")
+              end;
+          '
+
           deployments > "$ARTIFACT_DIR/before.json"
-          jq -e '.success == true and (.result | length) > 0' "$ARTIFACT_DIR/before.json" >/dev/null
-          PREVIOUS_DEPLOYMENT_ID="$(jq -r '.result[0].id' "$ARTIFACT_DIR/before.json")"
-          PREVIOUS_VERSION_ID="$(jq -r '.result[0].versions[] | select(.percentage == 100) | .version_id' "$ARTIFACT_DIR/before.json" | head -n1)"
+          jq -e "${deployments_jq} .success == true and (deployments | length) > 0" "$ARTIFACT_DIR/before.json" >/dev/null
+          PREVIOUS_DEPLOYMENT_ID="$(jq -r "${deployments_jq} deployments[0].id // empty" "$ARTIFACT_DIR/before.json")"
+          PREVIOUS_VERSION_ID="$(jq -r "${deployments_jq} deployments[0].versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/before.json" | head -n1)"
           test -n "$PREVIOUS_DEPLOYMENT_ID"
           test -n "$PREVIOUS_VERSION_ID"
 
@@ -85,7 +97,8 @@ jobs:
             npx --yes wrangler@${WRANGLER_VERSION} rollback "$PREVIOUS_VERSION_ID" --message "LeadX automatic rollback: public SaaS release smoke failed"
             for _ in $(seq 1 60); do
               deployments > "$ARTIFACT_DIR/rollback.json"
-              restored="$(jq -r '.result[0].versions[] | select(.percentage == 100) | .version_id' "$ARTIFACT_DIR/rollback.json" | head -n1)"
+              jq -e "${deployments_jq} .success == true and (deployments | length) > 0" "$ARTIFACT_DIR/rollback.json" >/dev/null
+              restored="$(jq -r "${deployments_jq} deployments[0].versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/rollback.json" | head -n1)"
               if [ "$restored" = "$PREVIOUS_VERSION_ID" ]; then
                 echo "ROLLBACK_STATE=completed"
                 return 0
@@ -113,9 +126,10 @@ jobs:
           NEW_VERSION_ID=""
           for _ in $(seq 1 90); do
             deployments > "$ARTIFACT_DIR/after.json"
-            candidate_deployment="$(jq -r '.result[0].id' "$ARTIFACT_DIR/after.json")"
-            candidate_version="$(jq -r '.result[0].versions[] | select(.percentage == 100) | .version_id' "$ARTIFACT_DIR/after.json" | head -n1)"
-            version_count="$(jq '.result[0].versions | length' "$ARTIFACT_DIR/after.json")"
+            jq -e "${deployments_jq} .success == true and (deployments | length) > 0" "$ARTIFACT_DIR/after.json" >/dev/null
+            candidate_deployment="$(jq -r "${deployments_jq} deployments[0].id // empty" "$ARTIFACT_DIR/after.json")"
+            candidate_version="$(jq -r "${deployments_jq} deployments[0].versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/after.json" | head -n1)"
+            version_count="$(jq "${deployments_jq} deployments[0].versions | length" "$ARTIFACT_DIR/after.json")"
             if [ "$candidate_deployment" != "$PREVIOUS_DEPLOYMENT_ID" ] && [ "$version_count" = "1" ] && [ -n "$candidate_version" ]; then
               NEW_DEPLOYMENT_ID="$candidate_deployment"
               NEW_VERSION_ID="$candidate_version"
