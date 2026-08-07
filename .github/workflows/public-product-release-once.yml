@@ -1,0 +1,49 @@
+name: LeadX Public V1 Release Once
+on:
+  push:
+    branches:
+      - "release/leadx-public-v1"
+    paths:
+      - "release/LEADX_PUBLIC_V1"
+jobs:
+  deploy-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: "release/leadx-public-v1"
+          fetch-depth: 0
+      - name: Verify release sentinel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git log -1 --format=%s)" = "release: authorize LeadX public v1"
+          test -f release/LEADX_PUBLIC_V1
+      - name: Deploy Workers-first exactly once
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: bash scripts/deploy-workers-first.sh
+      - name: Publish release evidence summary
+        if: always()
+        shell: bash
+        run: |
+          if compgen -G 'artifacts/workers-first/*/summary.txt' > /dev/null; then
+            {
+              echo '## LeadX Workers-first evidence'
+              echo '```text'
+              cat artifacts/workers-first/*/summary.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leadx-public-v1-release-${{ github.run_id }}
+          path: artifacts/workers-first/
+          if-no-files-found: ignore
+          retention-days: 7
