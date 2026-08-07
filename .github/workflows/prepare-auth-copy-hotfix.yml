@@ -1,0 +1,60 @@
+name: Prepare LeadX auth-copy hotfix
+
+on:
+  push:
+    branches: [feat/public-freemium-v1]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.event.head_commit.message == 'ops: prepare auth-copy hotfix source'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare bounded auth + client-facing copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime = Path('worker/runtime.mjs')
+          text = runtime.read_text()
+          old = 'iterations: 150000'
+          assert text.count(old) == 1, text.count(old)
+          runtime.write_text(text.replace(old, 'iterations: 10000'))
+
+          tests = Path('web/scripts/public-product-tests.mjs')
+          text = tests.read_text()
+          assert 'iterations: 150000' in text
+          text = text.replace('iterations: 150000', 'iterations: 10000')
+          tests.write_text(text)
+
+          app = Path('web/src/App.tsx')
+          text = app.read_text()
+          replacements = {
+            'Empezá con 100 contactos gratis.': 'Empezá con tus primeros 100 clientes gratis.',
+            'Tus contactos quedan privados en tu espacio.': 'Tus clientes quedan privados en tu espacio.',
+            'Tus contactos.<br /><em>En orden.</em>': 'Tus clientes.<br /><em>En orden.</em>',
+            'Gratis hasta 100 contactos': 'Gratis hasta 100 clientes',
+            'contactos gratis<br />para empezar': 'clientes gratis<br />para empezar',
+            'Hasta 100 contactos': 'Hasta 100 clientes',
+            'Si llegás al límite, tus contactos quedan intactos': 'Si llegás al límite, tus clientes quedan intactos',
+            'Free hasta 100 contactos.': 'Free hasta 100 clientes.',
+          }
+          for old, new in replacements.items():
+            assert old in text, old
+            text = text.replace(old, new)
+          app.write_text(text)
+          PY
+          mkdir -p prepared/worker prepared/web/scripts prepared/web/src
+          cp worker/runtime.mjs prepared/worker/runtime.mjs
+          cp web/scripts/public-product-tests.mjs prepared/web/scripts/public-product-tests.mjs
+          cp web/src/App.tsx prepared/web/src/App.tsx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leadx-auth-copy-hotfix-source
+          path: prepared
+          retention-days: 1
