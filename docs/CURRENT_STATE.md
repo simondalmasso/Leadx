@@ -13,12 +13,11 @@ WORKING_BRANCH=feat/public-freemium-v1
 PR=23
 PR_STATE=DRAFT_OPEN
 BASE_DESIGN_HEAD=793c07a246ae54260a64551f0f2e5d5431cfe033
-CANDIDATE_SOURCE_SHA=ca5227783e9b3b03801a847a01fdf47e4a38218f
-CANDIDATE_CI_RUN=31187983915
-CANDIDATE_CI_JOB=92897307706
-CANDIDATE_PREVIEW_ARTIFACT=8997561747
+CANDIDATE_SOURCE_SHA=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
+CANDIDATE_CI_RUN=31188352572
+CANDIDATE_CI_JOB=92898534266
 CANDIDATE_CI=PASS
-RELEASE_STATUS=AUTHORIZED_WORKERS_FIRST_RUNNING_OR_PENDING
+RELEASE_STATUS=AUTHORIZED_WORKERS_FIRST_RETRY_AFTER_VERIFIED_PREFLIGHT_FIX
 PRODUCTION_URL=https://leadx.simondalmasso44.workers.dev/
 FREE_CONTACT_LIMIT=100
 DEMO=PUBLIC_SYNTHETIC_ONLY
@@ -59,22 +58,33 @@ PUBLIC_BROWSER
 
 ## Gate pre-release ejecutado
 ```text
-RUN_ID=31187983915
-JOB_ID=92897307706
-HEAD=ca5227783e9b3b03801a847a01fdf47e4a38218f
+RUN_ID=31188352572
+JOB_ID=92898534266
+HEAD=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
 INSTALL_FROZEN=PASS
 BUILD=PASS
-PUBLIC_PRODUCT_TESTS=12/12
+PUBLIC_PRODUCT_TESTS=PASS
 TYPECHECK=PASS
 WORKER_SYNTAX=PASS
 LEGACY_ACTIVE_RUNTIME=ABSENT
 WRANGLER_DRY_RUN=PASS
-PREVIEW_ARTIFACT_ID=8997561747
-PREVIEW_ARTIFACT_SHA256=b1404db7c25b0ae5d7ebb9cbc7fdd7c832d30016521ef8d3c255d84ade71611f
+```
+
+## Incidente de release y corrección
+```text
+FAILED_RELEASE_RUN=31188128602
+FAILED_RELEASE_JOB=92897792944
+FIRST_CAUSAL_ERROR=Cloudflare deployments response parsed as .result[0] although current schema exposes .result.deployments
+DEPLOY_ATTEMPTED=NO
+PRODUCTION_CHANGED=NO
+LEGACY_KV_PURGED=NO
+FIX_COMMIT=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
+FIX=Normalize both supported Cloudflare deployment response shapes before reading deployment/version IDs
+FIX_VALIDATION=CI_PASS
 ```
 
 ## Release gate
-El commit que contiene este estado inicia el release Workers-first. No declarar público hasta registrar: deployment/version anteriores y nuevos, 100% traffic, HTTP/browser smoke PASS, purge de KV legacy, cero keys legacy remanentes y smoke post-purge PASS. Si el smoke pre-purge falla, el workflow debe restaurar el version ID anterior.
+Este commit autoriza el único reintento Workers-first después de identificar y corregir la causa anterior. No declarar público hasta registrar: deployment/version anteriores y nuevos, 100% traffic, HTTP/browser smoke PASS, purge de KV legacy, cero keys legacy remanentes y smoke post-purge PASS. Si el smoke pre-purge falla, el workflow debe restaurar el version ID anterior.
 
 ## Riesgos conocidos del piloto
 - Workers KV tiene consistencia eventual; colaboración concurrente multiusuario queda fuera de este piloto.
@@ -83,5 +93,5 @@ El commit que contiene este estado inicia el release Workers-first. No declarar 
 
 ## Próximo paso exacto
 ```text
-NEXT_EXACT_ACTION=VERIFY_SINGLE_WORKERS_FIRST_RELEASE_AND_PRODUCTION_THEN_RECONCILE_GITHUB
+NEXT_EXACT_ACTION=EXECUTE_AND_VERIFY_SINGLE_WORKERS_FIRST_RETRY_THEN_RECONCILE_GITHUB_AND_DRIVE
 ```
