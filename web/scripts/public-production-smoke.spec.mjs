@@ -22,6 +22,7 @@ async function openPublicSurface(page, viewport) {
     if (/Tus clientes/i.test(lastTitle)) {
       try {
         await page.getByRole("heading", { name: /Tus clientes/i }).waitFor({ state: "visible", timeout: 6_000 });
+        await page.locator(".leadx-wordmark").first().waitFor({ state: "visible", timeout: 2_000 });
         ready = true;
         console.log(`PUBLIC_UI_READY_ATTEMPT=${attempt}`);
         break;
