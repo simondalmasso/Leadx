@@ -13,11 +13,11 @@ WORKING_BRANCH=feat/public-freemium-v1
 PR=23
 PR_STATE=DRAFT_OPEN
 BASE_DESIGN_HEAD=793c07a246ae54260a64551f0f2e5d5431cfe033
-CANDIDATE_SOURCE_SHA=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
-CANDIDATE_CI_RUN=31188352572
-CANDIDATE_CI_JOB=92898534266
+CANDIDATE_SOURCE_SHA=75a566a35b49ca05976bdf127a2319f736358685
+CANDIDATE_CI_RUN=31188848991
+CANDIDATE_CI_JOB=92900212104
 CANDIDATE_CI=PASS
-RELEASE_STATUS=AUTHORIZED_WORKERS_FIRST_RETRY_2_RUNNING_OR_PENDING
+RELEASE_STATUS=AUTHORIZED_WORKERS_FIRST_AFTER_SCHEMA_AND_PROPAGATION_FIXES
 PRODUCTION_URL=https://leadx.simondalmasso44.workers.dev/
 FREE_CONTACT_LIMIT=100
 DEMO=PUBLIC_SYNTHETIC_ONLY
@@ -58,9 +58,9 @@ PUBLIC_BROWSER
 
 ## Gate pre-release ejecutado
 ```text
-RUN_ID=31188352572
-JOB_ID=92898534266
-HEAD=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
+RUN_ID=31188848991
+JOB_ID=92900212104
+HEAD=75a566a35b49ca05976bdf127a2319f736358685
 INSTALL_FROZEN=PASS
 BUILD=PASS
 PUBLIC_PRODUCT_TESTS=PASS
@@ -70,21 +70,31 @@ LEGACY_ACTIVE_RUNTIME=ABSENT
 WRANGLER_DRY_RUN=PASS
 ```
 
-## Incidente de release y corrección
+## Incidentes de release y correcciones
 ```text
-FAILED_RELEASE_RUN=31188128602
-FAILED_RELEASE_JOB=92897792944
-FIRST_CAUSAL_ERROR=Cloudflare deployments response parsed as .result[0] although current schema exposes .result.deployments
-DEPLOY_ATTEMPTED=NO
-PRODUCTION_CHANGED=NO
-LEGACY_KV_PURGED=NO
-FIX_COMMIT=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
-FIX=Normalize both supported Cloudflare deployment response shapes before reading deployment/version IDs
-FIX_VALIDATION=CI_PASS
+INCIDENT_1_RUN=31188128602
+INCIDENT_1_JOB=92897792944
+INCIDENT_1_CAUSE=Cloudflare deployments response parsed as .result[0] although current schema exposes .result.deployments
+INCIDENT_1_DEPLOY_ATTEMPTED=NO
+INCIDENT_1_PRODUCTION_CHANGED=NO
+INCIDENT_1_FIX=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
+
+INCIDENT_2_RUN=31188457557
+INCIDENT_2_JOB=92898885449
+INCIDENT_2_NEW_DEPLOYMENT_ID=ddb6f1f2-6437-4085-81c8-c5bae895d617
+INCIDENT_2_NEW_VERSION_ID=5537b887-09c0-45c9-8f1f-02da3e16fbdb
+INCIDENT_2_CAUSE=Production smoke executed immediately after control-plane activation and observed the previous runtime during propagation
+INCIDENT_2_OBSERVED_HEALTH_VERSION=leadx-multiline-v1
+INCIDENT_2_OBSERVED_SESSION_MODE=demo
+INCIDENT_2_ROLLBACK=PASS
+INCIDENT_2_RESTORED_VERSION_ID=8194e500-d692-40ef-acb6-cbfdda9e9b4e
+INCIDENT_2_LEGACY_KV_PURGED=NO
+INCIDENT_2_FIX=75a566a35b49ca05976bdf127a2319f736358685
+INCIDENT_2_FIX_DETAIL=Poll exact public release readiness before browser smoke; keep all release assertions unchanged
 ```
 
 ## Release gate
-Este commit inicia el único reintento Workers-first después de identificar y corregir la causa anterior. No declarar público hasta registrar deployment/version anteriores y nuevos, 100% traffic, HTTP/browser smoke PASS, purge de KV legacy, cero keys legacy remanentes y smoke post-purge PASS. Si el smoke pre-purge falla, el workflow debe restaurar el version ID anterior.
+Este commit autoriza un nuevo Workers-first sólo porque las dos causas observadas fueron identificadas, corregidas y validadas en CI. No declarar público hasta registrar deployment/version nuevos, 100% traffic, readiness exacta, browser smoke PASS, purge de las 6 claves KV legacy observadas, cero claves legacy remanentes y smoke post-purge PASS. Si el smoke pre-purge falla, restaurar el version ID anterior y no purgar KV.
 
 ## Riesgos conocidos del piloto
 - Workers KV tiene consistencia eventual; colaboración concurrente multiusuario queda fuera de este piloto.
@@ -93,5 +103,5 @@ Este commit inicia el único reintento Workers-first después de identificar y c
 
 ## Próximo paso exacto
 ```text
-NEXT_EXACT_ACTION=VERIFY_WORKERS_FIRST_RETRY_2_AND_PRODUCTION_THEN_RECONCILE_GITHUB_AND_DRIVE
+NEXT_EXACT_ACTION=EXECUTE_AND_VERIFY_WORKERS_FIRST_PUBLIC_RELEASE_THEN_RECONCILE_MAIN_PR_DRIVE
 ```
