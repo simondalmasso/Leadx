@@ -14,6 +14,10 @@ from labs.fotomultas_discovery.worker import run_once
 NOW = datetime(2026, 7, 21, 12, 0, tzinfo=timezone.utc)
 
 
+def recent_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def candidate(**overrides):
     base = {
         "id": "synthetic:lead:1",
@@ -143,7 +147,13 @@ class PipelineTests(unittest.TestCase):
             dead = root / "dead"
             inbox.mkdir()
             (inbox / "ok.json").write_text(
-                json.dumps({"job_id": "job-ok", "candidates": [candidate()], "verifications": [verification()]}),
+                json.dumps(
+                    {
+                        "job_id": "job-ok",
+                        "candidates": [candidate()],
+                        "verifications": [verification(checked_at=recent_timestamp())],
+                    }
+                ),
                 encoding="utf-8",
             )
             (inbox / "bad.json").write_text("not-json", encoding="utf-8")
