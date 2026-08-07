@@ -7,6 +7,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const app = read("web/src/App.tsx");
+const api = read("web/src/lib/api.ts");
 const demo = read("web/src/demo-leads.ts");
 const worker = read("worker/runtime.mjs");
 const wrangler = read("wrangler.toml");
@@ -29,6 +30,12 @@ test("API exposes generic contacts routes", () => { assert.match(worker, /\/api\
 test("legacy auth and ingest API are absent", () => { assert.doesNotMatch(worker, /DASHBOARD_PASSWORD|INGEST_SECRET|\/api\/ingest/); });
 test("CSP blocks framing", () => assert.match(worker, /frame-ancestors 'none'/));
 test("worker uses only the generic KV binding", () => assert.match(wrangler, /binding = "LEADX_KV"/));
+test("public bootstrap cannot wait forever for session", () => {
+  assert.match(api, /SESSION_TIMEOUT_MS = 3000/);
+  assert.match(api, /new AbortController\(\)/);
+  assert.match(api, /controller\.abort\("request_timeout"\)/);
+  assert.match(api, /session: \(\) => request<SessionInfo>\([^\n]+SESSION_TIMEOUT_MS\)/);
+});
 
 let passed = 0;
 for (const [name, fn] of tests) {
