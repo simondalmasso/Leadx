@@ -49,7 +49,7 @@ BRANCH=feat/fotomultas-discovery-lab-v1
 BASE_BRANCH=fix/ingest-vertical-safety-v1
 PR_STATE=DRAFT_OPEN
 CURRENT_PR_HEAD=VERIFY_REMOTE_BEFORE_ACTION
-LAST_FULL_IMPLEMENTATION_HEAD=d43843ef44b4c1a976e241809947a9584fcbb9ea
+LAST_FULL_IMPLEMENTATION_HEAD=3476ccf2bf7dd2d287559731ad9dfac4b0f0cb32
 TARGET_VERTICAL=fotomultas
 DEBT_THRESHOLD_ARS=1000000
 REPUESTOS_AGRICOLAS_ACCESS=NO
@@ -142,7 +142,7 @@ OCI_VCN_POST_DELETE_GET=NOT_AUTHORIZED_OR_NOT_FOUND
 OCI_VCN_POST_DELETE_VERIFICATION=PASS
 OCI_VCN_DELETED_AT=2026-08-06T22:09:00-03:00
 OCI_EVIDENCE_SOURCE=OWNER_CLOUD_SHELL_OUTPUT
-OCI_DR_G_RESOURCE_DELETED=NO
+OCI_DRG_RESOURCE_DELETED=NO
 OCI_BUILTIN_DNS_RESOLVER=EXPECTED_DELETED_WITH_VCN_NOT_SEPARATELY_VERIFIED
 OCI_PRODUCTION_DEPLOY_EXECUTED=NO
 CLOUDFLARE_TOUCHED=NO
@@ -152,6 +152,21 @@ LEADX_KV_TOUCHED=NO
 El proceso tuvo errores de parsing en los scripts auxiliares después de algunas operaciones, pero la verificación final consultó el OCID exacto y devolvió que el recurso ya no existe. Esa consulta posterior es la evidencia de cierre. No volver a ejecutar el script destructivo contra ese OCID.
 
 La eliminación fue exclusiva de infraestructura Oracle asociada a `vcn-leadx`. No constituye deploy de LeadX, merge de GitHub ni cambio de Cloudflare/KV.
+
+## Incidente CI temporal corregido
+
+```text
+FAILED_RUN_ID=31137255232
+FAILED_RUN_CONCLUSION=failure
+FIRST_CAUSAL_ERROR=synthetic_verification_checked_at_expired
+PRODUCT_DEFECT=NO
+TEST_FIX=runtime_relative_synthetic_timestamps
+FIX_HEAD=3476ccf2bf7dd2d287559731ad9dfac4b0f0cb32
+FIX_RUN_ID=31137544125
+FIX_RUN_CONCLUSION=success
+```
+
+La CI detectó correctamente que las verificaciones sintéticas del 21 de julio habían vencido según el gate de vigencia. Se corrigieron únicamente los tests y el fixture temporal de CI para generar timestamps recientes durante la ejecución. No se relajó el límite productivo ni la validación de antigüedad.
 
 ### Tecnologías externas
 
@@ -169,8 +184,8 @@ El radar existente ya resuelve el descubrimiento público inicial. GoogleScraper
 
 ```text
 CI_WORKFLOW=LeadX Fotomultas Discovery Lab CI
-LAST_FULL_CODE_HEAD_VALIDATED=d43843ef44b4c1a976e241809947a9584fcbb9ea
-LAST_FULL_CODE_RUN_ID=29835234185
+LAST_FULL_CODE_HEAD_VALIDATED=3476ccf2bf7dd2d287559731ad9dfac4b0f0cb32
+LAST_FULL_CODE_RUN_ID=31137544125
 LAST_FULL_CODE_CONCLUSION=success
 CONTAINMENT=PASS
 PYTHON_COMPILE=PASS
