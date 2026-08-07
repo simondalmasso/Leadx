@@ -1,0 +1,63 @@
+name: LeadX UI Product CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'web/**'
+      - 'worker/**'
+      - 'worker.js'
+      - 'docs/DESIGN_SIGNAL_DESK.md'
+      - '.github/workflows/ui-product-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'web/**'
+      - 'worker/**'
+      - 'worker.js'
+      - '.github/workflows/ui-product-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leadx-ui-product-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frozen dependencies
+        run: npm --prefix web ci
+
+      - name: Build
+        run: npm --prefix web run build
+
+      - name: Test
+        run: npm --prefix web test
+
+      - name: Typecheck
+        run: npm --prefix web run typecheck
+
+      - name: Verify design containment
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code origin/${{ github.base_ref }}...HEAD -- worker worker.js wrangler.toml || {
+            echo 'UI_DESIGN_CONTAINMENT=FAIL'
+            exit 1
+          }
+          echo 'UI_DESIGN_CONTAINMENT=PASS'
