@@ -12,13 +12,29 @@ async function openPublicSurface(page, viewport) {
   page.on("pageerror", (error) => pageErrors.push(String(error)));
   page.on("requestfailed", (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText || "failed"}`));
 
-  await page.goto(`${baseURL}${separator}ui_ready=${Date.now()}`, { waitUntil: "domcontentloaded" });
-  const heading = page.getByRole("heading", { name: /Tus clientes/i });
-  const ready = await heading.isVisible({ timeout: 10_000 }).catch(() => false);
+  let ready = false;
+  let lastTitle = "";
+  let lastBody = "";
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    await page.goto(`${baseURL}${separator}ui_ready=${Date.now()}-${attempt}`, { waitUntil: "domcontentloaded" });
+    lastTitle = await page.title().catch(() => "");
+
+    if (/Tus clientes/i.test(lastTitle)) {
+      try {
+        await page.getByRole("heading", { name: /Tus clientes/i }).waitFor({ state: "visible", timeout: 6_000 });
+        ready = true;
+        console.log(`PUBLIC_UI_READY_ATTEMPT=${attempt}`);
+        break;
+      } catch {
+        lastBody = await page.locator("body").innerText().catch(() => "");
+      }
+    } else {
+      lastBody = await page.locator("body").innerText().catch(() => "");
+      await page.waitForTimeout(2_000);
+    }
+  }
 
   if (!ready) {
-    const lastTitle = await page.title().catch(() => "");
-    const lastBody = await page.locator("body").innerText().catch(() => "");
     console.log(`PUBLIC_UI_LAST_TITLE=${lastTitle}`);
     console.log(`PUBLIC_UI_LAST_BODY=${lastBody.slice(0, 500).replaceAll("\n", " | ")}`);
     console.log(`PUBLIC_UI_PAGE_ERRORS=${JSON.stringify(pageErrors)}`);
