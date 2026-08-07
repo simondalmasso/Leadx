@@ -14,11 +14,13 @@ WORKING_BRANCH=feat/hovs-global-design-v1
 PR=21
 PR_STATE=DRAFT_OPEN
 PR_BASE=main
-CURRENT_PR_HEAD=VERIFY_REMOTE_BEFORE_ACTION
-LAST_PRODUCT_HEAD_VALIDATED=88623f130eab637d01337c58a3c84b3770f4de43
+LAST_PRODUCT_HEAD_VALIDATED=081c4b7d4caa5d0243b146c5f194d248cbc864a0
 DESIGN_DIRECTION=SIGNAL_DESK
-IMPLEMENTATION_STATUS=CODE_COMPLETE_CI_PASS
-VISUAL_RENDER_QA=PENDING
+IMPLEMENTATION_STATUS=CODE_COMPLETE_CI_PASS_VISUAL_QA_PASS
+DESKTOP_VISUAL_QA=PASS_NON_PRODUCTION
+MOBILE_VISUAL_QA=PASS_NON_PRODUCTION
+SYNTHETIC_REAL_MODE_QA=PASS
+PRODUCTION_VISUAL_QA=NOT_EXECUTED
 DEPLOY_EXECUTED=NO
 MERGE_EXECUTED=NO
 PRODUCTION_CHANGED=NO
@@ -29,7 +31,7 @@ REAL_DATA_CHANGED=NO
 
 ## Dirección creativa
 
-El rediseño parte de una decisión funcional: LeadX debe ayudar a resolver **a quién prestar atención ahora**. La interfaz se trata como una mesa editorial de señales comerciales y no como un dashboard SaaS.
+LeadX se replanteó como una mesa editorial de señales comerciales y no como un dashboard SaaS. La decisión funcional central es **a quién prestar atención ahora**.
 
 ```text
 WHY=REDUCE_COMMERCIAL_DECISION_NOISE
@@ -67,48 +69,103 @@ Archivos de producto modificados:
 - `web/src/styles-multiline-table.css`
 - `web/src/styles-multiline-responsive.css`
 - `web/src/styles-contact-demo.css`
+- `web/src/components/LeadTable.tsx` — sólo agrega una clase presentacional para dimensionar correctamente el ledger de 7 columnas de Repuestos agrícolas;
 - `web/public/leadx-mark.svg`
 - `web/public/leadx-wordmark.svg`
 
-CI agregado:
+Gobernanza/evidencia:
 
 - `.github/workflows/ui-product-ci.yml`
+- `docs/DESIGN_SIGNAL_DESK.md`
+- `docs/CURRENT_STATE.md`
 
-No se modificaron `App.tsx`, componentes React, worker, APIs, sesión, autenticación, KV, scoring, filtros ni importación.
+No se modificaron `App.tsx`, worker, APIs, sesión, autenticación, KV, scoring, filtros, importación ni datos.
 
-## Validación
-
-Workflow:
+## Validación técnica final
 
 ```text
 WORKFLOW=LeadX UI Product CI
-RUN_ID=31176702954
-JOB_ID=92860166544
-HEAD=88623f130eab637d01337c58a3c84b3770f4de43
+RUN_ID=31178481661
+JOB_ID=92865842250
+HEAD=081c4b7d4caa5d0243b146c5f194d248cbc864a0
 RUN_CONCLUSION=success
 INSTALL_FROZEN=PASS
 BUILD=PASS
 TEST=PASS
 TYPECHECK=PASS
 DESIGN_CONTAINMENT=PASS
-DEPLOY_ATTEMPTED=NO
-```
-
-La ejecución final verificó producto y contención sin secretos y sin deploy.
-
-Resultados visibles en logs de la ejecución previa que ejercitó la misma implementación de producto después de la corrección demo:
-
-```text
+STATIC_PREVIEW_ARTIFACT_UPLOAD=PASS
+ARTIFACT_ID=8993779264
+ARTIFACT_SHA256=d1748a82f2d64b77fe91c995d05a52cbe973647bc51945a4ff8fbd16817e951b
 BASELINE_COVERAGE=66/66
 SECURITY_RUNTIME_TESTS=71/71
 MULTI_LINEA=32/32
+DEPLOY_ATTEMPTED=NO
 ```
 
-### Incidentes de CI durante implementación
+El artefacto estático fue generado por el mismo run verde y usado para QA visual local sin conexión a producción ni acceso a datos reales.
 
-1. Run `31176461890`: build y baseline iniciales avanzaron, pero el contrato `demo mode is visually unequivocal` falló porque se habían cambiado las cadenas CSS `MODO DEMO` / `SIN DATOS REALES`. Se restauraron esas señales textuales manteniendo el sistema visual nuevo.
-2. Run `31176575906`: build, tests y typecheck pasaron; falló únicamente el gate de contención nuevo porque `checkout` shallow no tenía `origin/main`. Se corrigió el workflow con `fetch-depth: 0` y comparación contra el SHA base del PR.
-3. Run `31176702954`: conclusión final `success` en todos los pasos.
+## QA visual ejecutado
+
+Superficies inspeccionadas mediante render real del bundle compilado:
+
+```text
+DESKTOP_1440_FOTOMULTAS_DEMO=PASS
+DESKTOP_1440_REPUESTOS_DEMO=PASS
+DESKTOP_1440_FILTER_DRAWER=PASS
+DESKTOP_1440_LEAD_DETAIL=PASS
+DESKTOP_1440_SYNTHETIC_REAL_MODE=PASS
+DESKTOP_1024_REPUESTOS=PASS
+MOBILE_390_FOTOMULTAS_DEMO=PASS
+MOBILE_390_FILTER_SHEET=PASS
+MOBILE_390_LEAD_DETAIL=PASS
+MOBILE_390_LOGIN_SHEET=PASS
+MOBILE_390_SYNTHETIC_REAL_REPUESTOS=PASS
+MOBILE_320_FOTOMULTAS_DEMO=PASS
+```
+
+Mediciones:
+
+```text
+HORIZONTAL_OVERFLOW_1440=NO
+HORIZONTAL_OVERFLOW_1024=NO
+HORIZONTAL_OVERFLOW_390=NO
+HORIZONTAL_OVERFLOW_320=NO
+MOBILE_VISIBLE_INTERACTION_TARGETS_UNDER_44PX=0
+MOBILE_LAST_FILTER_ACCESSIBLE_ABOVE_STICKY_ACTIONS=YES
+```
+
+La comprobación de targets fue realizada sobre los controles visibles del estado base en 390 y 320 px después del ajuste final. No equivale a una certificación WCAG completa ni a una auditoría con lector de pantalla.
+
+## QA funcional ejecutado sobre el render
+
+```text
+INITIAL_DEMO_ROWS=12
+SEARCH_TOMAS_RESULT_ROWS=1
+SORT_NAME_FIRST_RESULT=Agustín_Ejemplo
+FILTER_MENDOZA_RESULT_ROWS=2
+KEYBOARD_ENTER_OPENS_DETAIL=PASS
+VERTICAL_SWITCH_REPUESTOS_ROWS=12
+VERTICAL_SWITCH_REPUESTOS_COLUMNS=7
+REPUESTOS_HORIZONTAL_OVERFLOW=NO
+SYNTHETIC_REAL_DESKTOP=PASS
+SYNTHETIC_REAL_MOBILE_REPUESTOS=PASS
+REAL_DATA_USED_FOR_QA=NO
+```
+
+Los modos autenticados se probaron con un `fetch` sintético local y fixtures ficticios; no se utilizaron secretos ni leads reales.
+
+## Hallazgos visuales corregidos durante QA
+
+1. **Ledger de Repuestos agrícolas:** el diseño inicial aplicaba anchos de 6 columnas a una tabla de 7 columnas; `Creado` quedaba fuera del viewport. Se agregó una clase exclusivamente presentacional y un reparto explícito 22/10/19/11/15/14/9, total 100%. Revalidado en 1440 y 1024 px sin overflow.
+2. **Targets táctiles mobile:** pestañas de línea y controles de cierre/unlock quedaban en 40–42 px. Se normalizaron a mínimo 44 px. Revalidado en 390 y 320 px con cero controles visibles por debajo de 44 px.
+
+## Incidentes de CI cerrados
+
+1. Run `31176461890`: falló el contrato visual de provenance demo al cambiar las cadenas `MODO DEMO` / `SIN DATOS REALES`. Se restauraron ambas sin abandonar el sistema visual nuevo.
+2. Run `31176575906`: build, tests y typecheck pasaron; falló sólo el gate de contención nuevo por checkout shallow. Se corrigió con historia Git completa y comparación contra el SHA base exacto.
+3. Run `31176702954`: primer cierre técnico completo antes del QA visual.
+4. Run `31178481661`: cierre técnico final después de los fixes encontrados en QA visual; todos los pasos `success` y artefacto de preview publicado.
 
 ## Invariantes preservados
 
@@ -125,22 +182,37 @@ REAL_LEADS_IN_GITHUB=NO
 DEPLOY=NO
 ```
 
-## Riesgo abierto
+## Riesgos abiertos no introducidos por este rediseño
 
-La rama todavía no fue renderizada en un entorno accesible para QA visual real. Por lo tanto:
+El run final también expone deuda preexistente del repositorio. No se debe confundir con PASS del rediseño:
 
 ```text
-DESKTOP_VISUAL_QA=NOT_EXECUTED
-MOBILE_VISUAL_QA=NOT_EXECUTED
-PRODUCTION_VISUAL_QA=NOT_EXECUTED
+NPM_AUDIT_MODERATE_VULNERABILITIES=1
+CURRENT_TREE_SECRET_SCAN=FAIL
+CURRENT_TREE_PII_SCAN=FAIL
+CURRENT_TREE_FALSE_POSITIVES=2
+GIT_HISTORY_SECRET_SCAN=FAIL
+GIT_HISTORY_PII_SCAN=FAIL
+HISTORY_REMEDIATION_REQUIRED=yes
+HISTORY_VALUES_REDACTED=yes
 ```
 
-No declarar calidad visual final ni promover el diseño basándose sólo en CI.
+Este PR no modifica `package.json`, `package-lock.json`, secretos, Worker ni datos. Los valores sensibles no se documentan aquí. La deuda de scanner debe tratarse como un trabajo de seguridad separado y verificable antes de afirmar que el repositorio completo está limpio.
+
+## Límite de validación
+
+```text
+NON_PRODUCTION_RENDER_QA=PASS
+PRODUCTION_VISUAL_QA=NOT_EXECUTED
+PRODUCTION_DEPLOY=NO
+```
+
+No declarar el diseño validado en producción hasta que exista un release explícitamente autorizado y su browser smoke productivo correspondiente.
 
 ## Próximo paso exacto
 
 ```text
-NEXT_EXACT_ACTION=AUTHORIZE_NON_PRODUCTION_RENDER_OF_PR21_FOR_DESKTOP_AND_MOBILE_VISUAL_QA
+NEXT_EXACT_ACTION=OWNER_DECIDE_WHETHER_TO_AUTHORIZE_WORKERS_FIRST_RELEASE_OF_PR21
 ```
 
-No mergear ni desplegar a producción hasta revisar el render real del PR #21 y corregir cualquier defecto visual encontrado.
+No mergear ni desplegar a producción sin autorización explícita del owner.
