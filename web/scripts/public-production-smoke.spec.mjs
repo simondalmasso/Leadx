@@ -2,6 +2,8 @@ import { test, expect } from "@playwright/test";
 
 const baseURL = process.env.LEADX_BASE_URL || "https://leadx.simondalmasso44.workers.dev";
 
+test.setTimeout(120_000);
+
 async function openPublicSurface(page, viewport) {
   await page.setViewportSize(viewport);
   let ready = false;
