@@ -32,6 +32,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -56,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --exit-code origin/${{ github.base_ref }}...HEAD -- worker worker.js wrangler.toml || {
+          git diff --exit-code "${{ github.event.pull_request.base.sha }}"...HEAD -- worker worker.js wrangler.toml || {
             echo 'UI_DESIGN_CONTAINMENT=FAIL'
             exit 1
           }
