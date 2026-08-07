@@ -166,6 +166,28 @@ jobs:
           fi
           echo "RUNTIME_PROPAGATION_READY=YES"
 
+          EXPECTED_JS_ASSET="$(grep -oE '/assets/[^\"]+\.js' web/dist/index.html | head -n1)"
+          test -n "$EXPECTED_JS_ASSET"
+          echo "EXPECTED_JS_ASSET=$EXPECTED_JS_ASSET"
+          ui_assets_ready=false
+          for attempt in $(seq 1 60); do
+            curl -fsS "$LEADX_BASE_URL/?asset_release=$GITHUB_SHA&attempt=$attempt" > "$ARTIFACT_DIR/public-index.html" || true
+            if grep -Fq "$EXPECTED_JS_ASSET" "$ARTIFACT_DIR/public-index.html" \
+              && curl -fsS "$LEADX_BASE_URL$EXPECTED_JS_ASSET?asset_release=$GITHUB_SHA&attempt=$attempt" -o /dev/null; then
+              ui_assets_ready=true
+              echo "PUBLIC_ASSET_PROPAGATION_ATTEMPT=$attempt"
+              break
+            fi
+            sleep 2
+          done
+
+          if ! $ui_assets_ready; then
+            echo "PUBLIC_ASSET_PROPAGATION_READY=NO"
+            rollback
+            exit 1
+          fi
+          echo "PUBLIC_ASSET_PROPAGATION_READY=YES"
+
           smoke_ok=true
           (cd web && npx playwright test scripts/public-production-smoke.spec.mjs --workers=1) 2>&1 | tee "$ARTIFACT_DIR/browser.log" || smoke_ok=false
           if ! $smoke_ok; then
