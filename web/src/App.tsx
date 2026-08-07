@@ -1,254 +1,384 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LockKeyhole, LogOut, RefreshCw, X } from "lucide-react";
-import type { Lead, LeadFilters, LeadVertical, SessionInfo } from "./types";
-import { fetchLeads, login, logout, checkSession, continueSession, SessionExpiredError } from "./lib/api";
-import { mergeCrmState, clearCrmState } from "./lib/storage";
-import { DEMO_LEADS } from "./demo-leads";
-import { purgeRealSessionState } from "./lib/session-state";
-import { EMPTY_FILTERS, filterLeads, leadCreatedAt, leadName, leadPotential, leadPotentialScore, leadPriority, normalizeLeads, parseVertical, verticalLabel } from "./lib/multi-line";
-import { Kpis } from "./components/Kpis";
-import { Filters } from "./components/Filters";
-import { LeadTable } from "./components/LeadTable";
-import { LeadDetail } from "./components/LeadDetail";
-import { VerticalSelector } from "./components/VerticalSelector";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Download,
+  Infinity as InfinityIcon,
+  LogOut,
+  Menu,
+  Plus,
+  Search,
+  Sparkles,
+  Users,
+  X,
+} from "lucide-react";
+import { DEMO_CONTACTS } from "./demo-leads";
+import { api } from "./lib/api";
+import type { Contact, ContactStatus, PlanSnapshot, SessionInfo } from "./types";
 
-// Compatibility invariant: purgeRealSessionState(demoByVertical(vertical),clearCrmState)
-function verticalFromUrl(): LeadVertical {
-  return parseVertical(new URLSearchParams(window.location.search).get("linea")) || "fotomultas";
+const FREE_CONTACT_LIMIT = 100;
+const STATUS_ORDER: ContactStatus[] = ["Nuevo", "Contactado", "Calificado", "Propuesta", "Cliente", "Pausado"];
+const EMPTY_PLAN: PlanSnapshot = { plan: "free", limit: FREE_CONTACT_LIMIT, count: 0, remaining: FREE_CONTACT_LIMIT };
+const EMPTY_CONTACT: Partial<Contact> = { name: "", company: "", email: "", phone: "", status: "Nuevo", source: "", notes: "", next_action: "" };
+
+type AuthMode = "register" | "login";
+
+type ContactEditorProps = {
+  contact?: Contact | null;
+  onClose: () => void;
+  onSave: (contact: Partial<Contact>) => Promise<void>;
+  onDelete?: () => Promise<void>;
+};
+
+function formatDate(value: string) {
+  const timestamp = Date.parse(value);
+  if (!timestamp) return "—";
+  return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(new Date(timestamp));
+}
+
+function contactSearch(contact: Contact) {
+  return [contact.name, contact.company, contact.email, contact.phone, contact.status, contact.source, contact.next_action].join(" ").toLowerCase();
+}
+
+function statusTone(status: ContactStatus) {
+  return status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replaceAll(" ", "-");
+}
+
+function exportCsv(contacts: Contact[]) {
+  const rows = [
+    ["Nombre", "Empresa", "Email", "Telefono", "Estado", "Fuente", "Proxima accion", "Notas", "Creado"],
+    ...contacts.map((contact) => [contact.name, contact.company, contact.email, contact.phone, contact.status, contact.source, contact.next_action, contact.notes, contact.created_at]),
+  ];
+  const csv = rows.map((row) => row.map((value) => `"${String(value || "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "leadx-contactos.csv";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function ContactEditor({ contact, onClose, onSave, onDelete }: ContactEditorProps) {
+  const [draft, setDraft] = useState<Partial<Contact>>(contact ? { ...contact } : { ...EMPTY_CONTACT });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(draft);
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No pudimos guardar el contacto.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-layer" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="editor-sheet" onSubmit={submit}>
+        <div className="editor-sheet__head">
+          <div><span className="eyebrow">{contact ? "Contacto" : "Nuevo contacto"}</span><h2>{contact ? contact.name : "Sumar a tu espacio"}</h2></div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
+        </div>
+        <div className="editor-grid">
+          <label><span>Nombre *</span><input autoFocus required maxLength={120} value={draft.name || ""} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Ej. Lucía Torres" /></label>
+          <label><span>Empresa</span><input maxLength={120} value={draft.company || ""} onChange={(e) => setDraft({ ...draft, company: e.target.value })} placeholder="Ej. Nómada Studio" /></label>
+          <label><span>Email</span><input type="email" maxLength={254} value={draft.email || ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} placeholder="lucia@empresa.com" /></label>
+          <label><span>Teléfono</span><input maxLength={60} value={draft.phone || ""} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} placeholder="+54 9 ..." /></label>
+          <label><span>Estado</span><select value={draft.status || "Nuevo"} onChange={(e) => setDraft({ ...draft, status: e.target.value as ContactStatus })}>{STATUS_ORDER.map((status) => <option key={status}>{status}</option>)}</select></label>
+          <label><span>Fuente</span><input maxLength={80} value={draft.source || ""} onChange={(e) => setDraft({ ...draft, source: e.target.value })} placeholder="Web, referido, evento..." /></label>
+          <label className="editor-grid__wide"><span>Próxima acción</span><input maxLength={220} value={draft.next_action || ""} onChange={(e) => setDraft({ ...draft, next_action: e.target.value })} placeholder="Qué tiene que pasar después" /></label>
+          <label className="editor-grid__wide"><span>Notas</span><textarea maxLength={2000} rows={5} value={draft.notes || ""} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Contexto que no querés perder" /></label>
+        </div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="editor-actions">
+          {contact && onDelete ? <button className="text-button text-button--danger" type="button" onClick={async () => { if (window.confirm("¿Eliminar este contacto?")) { await onDelete(); onClose(); } }}>Eliminar</button> : <span />}
+          <div><button className="btn btn--quiet" type="button" onClick={onClose}>Cancelar</button><button className="btn btn--signal" disabled={saving || !draft.name?.trim()}>{saving ? "Guardando…" : "Guardar"}</button></div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function AuthDialog({ mode, onClose, onSuccess }: { mode: AuthMode; onClose: () => void; onSuccess: (session: SessionInfo) => void }) {
+  const [authMode, setAuthMode] = useState<AuthMode>(mode);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const result = authMode === "register" ? await api.register(email, password) : await api.login(email, password);
+      onSuccess({ authenticated: true, mode: "workspace", user: result.user, plan: result.plan });
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No pudimos completar el acceso.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-layer" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="auth-card" onSubmit={submit}>
+        <div className="auth-card__top"><div className="brand-mark">L<span>X</span></div><button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button></div>
+        <span className="eyebrow">{authMode === "register" ? "Plan Free" : "Tu espacio"}</span>
+        <h2>{authMode === "register" ? "Empezá con 100 contactos gratis." : "Volvé a tu LeadX."}</h2>
+        <p>{authMode === "register" ? "Sin tarjeta, sin vencimiento. Tus contactos quedan privados en tu espacio." : "Ingresá con el email y contraseña de tu espacio."}</p>
+        <label><span>Email</span><input autoFocus type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vos@empresa.com" /></label>
+        <label><span>Contraseña</span><input type="password" required minLength={10} maxLength={128} autoComplete={authMode === "register" ? "new-password" : "current-password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 10 caracteres" /></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button className="btn btn--signal auth-card__submit" disabled={loading}>{loading ? "Un segundo…" : authMode === "register" ? "Crear espacio gratis" : "Ingresar"}</button>
+        <button className="auth-card__switch" type="button" onClick={() => { setAuthMode(authMode === "register" ? "login" : "register"); setError(""); }}>
+          {authMode === "register" ? "¿Ya tenés cuenta? Ingresar" : "¿Sos nuevo? Crear espacio gratis"}
+        </button>
+        <small>Al crear una cuenta aceptás usar LeadX para información que tengas derecho a gestionar.</small>
+      </form>
+    </div>
+  );
+}
+
+function ContactDesk({ contacts, preview, plan, onAdd, onOpen }: { contacts: Contact[]; preview: boolean; plan: PlanSnapshot; onAdd: () => void; onOpen: (contact: Contact) => void }) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<ContactStatus | "Todos">("Todos");
+  const [sort, setSort] = useState<"recent" | "name">("recent");
+
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return contacts
+      .filter((contact) => (!needle || contactSearch(contact).includes(needle)) && (status === "Todos" || contact.status === status))
+      .sort((a, b) => sort === "name" ? a.name.localeCompare(b.name, "es") : Date.parse(b.created_at) - Date.parse(a.created_at));
+  }, [contacts, search, sort, status]);
+
+  const active = contacts.filter((contact) => !["Cliente", "Pausado"].includes(contact.status)).length;
+  const qualified = contacts.filter((contact) => ["Calificado", "Propuesta", "Cliente"].includes(contact.status)).length;
+  const clients = contacts.filter((contact) => contact.status === "Cliente").length;
+
+  return (
+    <section className={`desk ${preview ? "desk--preview" : ""}`} id={preview ? "demo" : "workspace"}>
+      <div className="desk__intro">
+        <div>
+          <span className="eyebrow">{preview ? "Preview interactiva" : "Tu espacio"}</span>
+          <h2>{preview ? "Mirá la señal. No el ruido." : "Contactos"}</h2>
+          <p>{preview ? "Datos 100% ficticios. Buscá, filtrá y abrí cualquier contacto." : `${plan.count} de ${plan.limit ?? "∞"} contactos en tu plan ${plan.plan === "free" ? "Free" : "Pro"}.`}</p>
+        </div>
+        <div className="desk__intro-actions">
+          {!preview && <button className="btn btn--quiet" onClick={() => exportCsv(contacts)} disabled={!contacts.length}><Download size={16} /> Exportar</button>}
+          <button className="btn btn--signal" onClick={onAdd}><Plus size={16} /> {preview ? "Crear mi espacio" : "Nuevo contacto"}</button>
+        </div>
+      </div>
+
+      <div className="signal-strip" aria-label="Resumen">
+        <div><span>Contactos</span><strong>{contacts.length}</strong></div>
+        <div><span>Activos</span><strong>{active}</strong></div>
+        <div><span>Calificados+</span><strong>{qualified}</strong></div>
+        <div><span>Clientes</span><strong>{clients}</strong></div>
+      </div>
+
+      <div className="desk-toolbar">
+        <label className="search-field"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar persona, empresa, email…" aria-label="Buscar contactos" /></label>
+        <label className="select-field"><span>Estado</span><select value={status} onChange={(e) => setStatus(e.target.value as ContactStatus | "Todos")}><option>Todos</option>{STATUS_ORDER.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label>
+        <label className="select-field"><span>Orden</span><select value={sort} onChange={(e) => setSort(e.target.value as "recent" | "name")}><option value="recent">Más recientes</option><option value="name">Nombre A–Z</option></select><ChevronDown size={15} /></label>
+      </div>
+
+      <div className="contact-ledger" role="table" aria-label="Contactos">
+        <div className="contact-ledger__head" role="row"><span>Contacto</span><span>Estado</span><span>Próxima acción</span><span>Creado</span></div>
+        {visible.map((contact) => (
+          <button className="contact-row" key={contact.id} onClick={() => onOpen(contact)} role="row">
+            <span className="contact-main"><strong>{contact.name}</strong><small>{contact.company || "Sin empresa"} · {contact.email || contact.phone || "Sin dato de contacto"}</small></span>
+            <span><i className={`status-dot status-dot--${statusTone(contact.status)}`} />{contact.status}</span>
+            <span className="contact-next">{contact.next_action || "Sin próxima acción"}</span>
+            <span className="contact-date">{formatDate(contact.created_at)}</span>
+          </button>
+        ))}
+        {!visible.length && <div className="empty-state"><strong>No hay coincidencias.</strong><span>Probá otra búsqueda o limpiá el filtro.</span></div>}
+      </div>
+    </section>
+  );
 }
 
 export default function App() {
-  const [activeVertical, setActiveVertical] = useState<LeadVertical>(verticalFromUrl);
-  const [leads, setLeads] = useState<Lead[]>([]);
+  const [session, setSession] = useState<SessionInfo>({ authenticated: false, mode: "preview" });
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [plan, setPlan] = useState<PlanSnapshot>(EMPTY_PLAN);
+  const [authOpen, setAuthOpen] = useState<AuthMode | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [selected, setSelected] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [meta, setMeta] = useState<{ generated_at?: string }>({});
-  const [isDemo, setIsDemo] = useState(true);
-  const [session, setSession] = useState<SessionInfo>({ authenticated: false, mode: "demo" });
-  const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [idleWarning, setIdleWarning] = useState(false);
-  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
-  const [loginOpen, setLoginOpen] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<LeadFilters>({ ...EMPTY_FILTERS });
-  const [sort, setSort] = useState("potential");
-  const lastActivityRef = useRef(Date.now());
-  const lastServerTouchRef = useRef(0);
-  const absoluteExpiresAtRef = useRef(0);
-  const sessionRef = useRef(session);
-  const verticalRef = useRef(activeVertical);
-  const channelRef = useRef<BroadcastChannel | null>(null);
+  const [notice, setNotice] = useState("");
+  const [mobileNav, setMobileNav] = useState(false);
 
-  useEffect(() => { sessionRef.current = session; }, [session]);
-  useEffect(() => { verticalRef.current = activeVertical; }, [activeVertical]);
-
-  const restoreDemoImmediately = useCallback((notice?: string) => {
-    const safe = purgeRealSessionState(DEMO_LEADS, clearCrmState);
-    const normalized = normalizeLeads(safe.leads).filter((lead) => lead.vertical === verticalRef.current);
-    setLeads(normalized);
-    setMeta(safe.meta);
-    setIsDemo(safe.isDemo);
-    setSession(safe.session);
-    setPassword("");
-    setLoginError(null);
-    setIdleWarning(false);
-    setLoginOpen(false);
-    setSelectedLead(null);
-    document.body.classList.remove("filters-open");
-    if (notice) setSessionNotice(notice);
-  }, []);
-
-  const endRealSession = useCallback((notice: string, broadcast = true) => {
-    restoreDemoImmediately(notice);
-    void logout().catch(() => undefined);
-    if (broadcast) channelRef.current?.postMessage({ type: "session-ended", notice });
-  }, [restoreDemoImmediately]);
-
-  const load = useCallback(async (authenticated: boolean, vertical: LeadVertical, userActivity = false) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await fetchLeads(authenticated, vertical, userActivity);
-      const nextLeads = authenticated && !result.isDemo ? mergeCrmState(result.leads) : result.leads;
-      setLeads(nextLeads);
-      setMeta(result.meta);
-      setIsDemo(result.isDemo);
-      const requestedLead = new URLSearchParams(window.location.search).get("lead");
-      setSelectedLead(requestedLead ? nextLeads.find((lead) => lead.id === requestedLead) || null : null);
-    } catch (reason) {
-      if (reason instanceof SessionExpiredError) endRealSession("Tu sesión terminó. Volvimos al modo demo.");
-      else setError(reason instanceof Error ? reason.message : "Error desconocido");
-    } finally { setLoading(false); }
-  }, [endRealSession]);
+  const loadWorkspace = async () => {
+    const result = await api.contacts();
+    setContacts(result.contacts);
+    setPlan(result.plan);
+  };
 
   useEffect(() => {
-    if (typeof BroadcastChannel !== "undefined") {
-      const channel = new BroadcastChannel("leadx-session");
-      channelRef.current = channel;
-      channel.onmessage = (event) => { if (event.data?.type === "session-ended") restoreDemoImmediately(event.data.notice || "La sesión terminó en otra pestaña."); };
-      return () => { channel.close(); channelRef.current = null; };
-    }
-    return undefined;
-  }, [restoreDemoImmediately]);
-
-  useEffect(() => {
-    const initialVertical = verticalRef.current;
     void (async () => {
-      const currentSession = await checkSession();
-      setSession(currentSession);
-      if (currentSession.authenticated) {
-        lastActivityRef.current = currentSession.idleExpiresAt ? currentSession.idleExpiresAt - 20 * 60_000 : Date.now();
-        lastServerTouchRef.current = Date.now();
-        absoluteExpiresAtRef.current = currentSession.absoluteExpiresAt || Date.now() + 8 * 60 * 60_000;
+      try {
+        const current = await api.session();
+        setSession(current);
+        if (current.authenticated) await loadWorkspace();
+      } catch {
+        setSession({ authenticated: false, mode: "preview" });
+      } finally {
+        setLoading(false);
       }
-      await load(currentSession.authenticated, initialVertical);
     })();
-  }, [load]);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      const next = verticalFromUrl();
-      verticalRef.current = next;
-      setActiveVertical(next);
-      setSelectedLead(null);
-      setFilters({ ...EMPTY_FILTERS });
-      void load(sessionRef.current.authenticated, next);
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [load]);
-
-  useEffect(() => {
-    const markError = () => { document.documentElement.dataset.pageerror = "true"; };
-    window.addEventListener("error", markError);
-    window.addEventListener("unhandledrejection", markError);
-    return () => { window.removeEventListener("error", markError); window.removeEventListener("unhandledrejection", markError); };
   }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       document.documentElement.dataset.leadxReady = loading ? "false" : "true";
-      document.documentElement.dataset.linea = activeVertical;
+      document.documentElement.dataset.mode = session.authenticated ? "workspace" : "preview";
       document.documentElement.dataset.overflow = document.documentElement.scrollWidth > document.documentElement.clientWidth ? "true" : "false";
-    }, 80);
+    }, 60);
     return () => window.clearTimeout(timer);
-  }, [activeVertical, leads, loading, selectedLead]);
+  }, [loading, session.authenticated, contacts.length, editorOpen, authOpen]);
 
-  const recordUserActivity = useCallback(() => {
-    if (!sessionRef.current.authenticated) return;
-    const now = Date.now();
-    lastActivityRef.current = now;
-    setIdleWarning(false);
-    if (now - lastServerTouchRef.current < 60_000) return;
-    lastServerTouchRef.current = now;
-    void continueSession().then((updated) => { if (updated.absoluteExpiresAt) absoluteExpiresAtRef.current = updated.absoluteExpiresAt; })
-      .catch((reason) => { if (reason instanceof SessionExpiredError) endRealSession("Tu sesión terminó. Volvimos al modo demo."); });
-  }, [endRealSession]);
-
-  useEffect(() => {
-    if (!session.authenticated) return undefined;
-    const timer = window.setInterval(() => {
-      const idleFor = Date.now() - lastActivityRef.current;
-      if ((absoluteExpiresAtRef.current && Date.now() >= absoluteExpiresAtRef.current) || idleFor >= 20 * 60_000) {
-        endRealSession(idleFor >= 20 * 60_000 ? "Tu sesión terminó por inactividad. Volvimos al modo demo." : "Tu sesión alcanzó el máximo de 8 horas. Volvimos al modo demo.");
-      } else if (idleFor >= 18 * 60_000) setIdleWarning(true);
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [session.authenticated, endRealSession]);
-
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setSelectedLead(null); setLoginOpen(false); document.body.classList.remove("filters-open");
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, []);
-
-  const handleVerticalChange = (vertical: LeadVertical) => {
-    if (vertical === activeVertical) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set("linea", vertical);
-    url.searchParams.delete("lead");
-    window.history.replaceState({}, "", url);
-    verticalRef.current = vertical;
-    setActiveVertical(vertical);
-    setSelectedLead(null);
-    setFilters((current) => ({ ...current, municipality: "", violationType: "", plate: "", brand: "", machineType: "", partNumber: "", urgency: "" }));
-    void load(sessionRef.current.authenticated, vertical);
+  const authSuccess = async (next: SessionInfo) => {
+    setSession(next);
+    setPlan(next.plan || EMPTY_PLAN);
+    await loadWorkspace();
+    setNotice("Tu espacio está listo. El plan Free incluye hasta 100 contactos.");
+    window.setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 80);
   };
 
-  const handleLogin = async () => {
-    setLoginLoading(true); setLoginError(null);
+  const logout = async () => {
+    await api.logout().catch(() => undefined);
+    setSession({ authenticated: false, mode: "preview" });
+    setContacts([]);
+    setPlan(EMPTY_PLAN);
+    setSelected(null);
+    setEditorOpen(false);
+    setNotice("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const saveContact = async (draft: Partial<Contact>) => {
+    const result = selected ? await api.updateContact(selected.id, draft) : await api.createContact(draft);
+    setPlan(result.plan);
+    setContacts((current) => selected ? current.map((contact) => contact.id === result.contact.id ? result.contact : contact) : [result.contact, ...current]);
+    setSelected(null);
+    setNotice(selected ? "Contacto actualizado." : "Contacto creado.");
+  };
+
+  const deleteContact = async () => {
+    if (!selected) return;
+    const result = await api.deleteContact(selected.id);
+    setPlan(result.plan);
+    setContacts((current) => current.filter((contact) => contact.id !== selected.id));
+    setSelected(null);
+    setNotice("Contacto eliminado.");
+  };
+
+  const wantPro = async () => {
+    if (!session.authenticated) { setAuthOpen("register"); return; }
     try {
-      const result = await login(password);
-      if (result.ok) {
-        setPassword("");
-        const nextSession = { authenticated: true, mode: "real" as const };
-        setSession(nextSession);
-        lastActivityRef.current = Date.now(); lastServerTouchRef.current = Date.now(); absoluteExpiresAtRef.current = Date.now() + 8 * 60 * 60_000;
-        setSessionNotice(null); setLoginOpen(false);
-        await load(true, verticalRef.current, true);
-      } else setLoginError(result.error || "Contraseña incorrecta");
-    } finally { setLoginLoading(false); }
+      await api.proInterest();
+      setNotice("Listo. Registramos tu interés en LeadX Pro.");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "No pudimos registrar el interés.");
+    }
   };
 
-  const handleLogout = () => endRealSession("Cerraste la sesión. Volvimos al modo demo.");
-  const handleContinueSession = async () => {
-    try {
-      const updated = await continueSession();
-      lastActivityRef.current = Date.now(); lastServerTouchRef.current = Date.now();
-      if (updated.absoluteExpiresAt) absoluteExpiresAtRef.current = updated.absoluteExpiresAt;
-      setIdleWarning(false);
-    } catch { endRealSession("Tu sesión terminó por inactividad. Volvimos al modo demo."); }
-  };
+  if (loading) return <div className="boot-screen"><div className="brand-mark">L<span>X</span></div><span>Preparando LeadX…</span></div>;
 
-  const filtered = useMemo(() => {
-    const result = filterLeads(leads, activeVertical, search, filters);
-    return [...result].sort((a, b) => {
-      if (sort === "potential") {
-        const difference = leadPotentialScore(b) - leadPotentialScore(a);
-        if (difference) return difference;
-      }
-      if (sort === "name") return leadName(a).localeCompare(leadName(b), "es");
-      if (sort === "priority") {
-        const rank = { Alta: 3, Media: 2, Baja: 1 };
-        const difference = rank[leadPriority(b)] - rank[leadPriority(a)];
-        if (difference) return difference;
-      }
-      return (Date.parse(leadCreatedAt(b) || "") || 0) - (Date.parse(leadCreatedAt(a) || "") || 0);
-    });
-  }, [activeVertical, filters, leads, search, sort]);
-
-  const exportVisible = () => {
-    const rows = [["Lead", "Provincia", "Teléfono", "Canal", "Potencial", "Creado"], ...filtered.map((lead) => [lead.name || lead.persona, lead.province || lead.provincia || "", lead.phone || "", lead.channel || "", leadPotential(lead), lead.created_at || lead.fecha_iso || ""])];
-    const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `leadx-${activeVertical}.csv`; anchor.click(); URL.revokeObjectURL(url);
-  };
+  const preview = !session.authenticated;
+  const shownContacts = preview ? DEMO_CONTACTS : contacts;
 
   return (
-    <div className="app">
-      <header className="app__header">
-        <div className="brand"><h1 className="app__title">LeadX</h1><p className="app__subtitle">{meta.generated_at ? `Actualizado ${new Date(meta.generated_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}` : `CRM · ${verticalLabel(activeVertical)}`}</p></div>
-        <div className="app__actions">
-          <span className={`mode-badge ${isDemo ? "mode-badge--demo" : "mode-badge--real"}`}>{isDemo ? "Modo demo" : "Datos reales"}</span>
-          {session.authenticated ? <><button className="btn btn--ghost" onClick={() => load(true, activeVertical, true)} disabled={loading} aria-label="Sincronizar"><RefreshCw size={16} aria-hidden="true" /></button><button className="btn btn--ghost" onClick={handleLogout} aria-label="Salir"><LogOut size={16} aria-hidden="true" /> Salir</button></>
-            : <><form className="login-form desktop-login" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}><input type="password" className="login-form__input" placeholder="Contraseña" value={password} onChange={(event) => setPassword(event.target.value)} aria-label="Contraseña" autoComplete="current-password" /><button type="submit" className="btn btn--primary" disabled={loginLoading || !password}>{loginLoading ? "…" : "Entrar"}</button></form><button className="btn mobile-unlock" onClick={() => setLoginOpen(true)}><LockKeyhole size={17} />Desbloquear datos reales</button></>}
+    <div className="site-shell">
+      <header className="site-nav">
+        <a className="wordmark" href="#top" aria-label="LeadX inicio">Lead<span>X</span></a>
+        <nav className={mobileNav ? "site-links site-links--open" : "site-links"}>
+          <a href="#demo" onClick={() => setMobileNav(false)}>Demo</a>
+          <a href="#como-funciona" onClick={() => setMobileNav(false)}>Cómo funciona</a>
+          <a href="#precios" onClick={() => setMobileNav(false)}>Precios</a>
+        </nav>
+        <div className="nav-actions">
+          {session.authenticated ? <><span className="account-chip">{session.user?.email}</span><button className="btn btn--quiet" onClick={() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" })}>Mi espacio</button><button className="icon-button" onClick={() => void logout()} aria-label="Cerrar sesión"><LogOut size={18} /></button></>
+            : <><button className="btn btn--quiet nav-login" onClick={() => setAuthOpen("login")}>Ingresar</button><button className="btn btn--signal" onClick={() => setAuthOpen("register")}>Empezar gratis</button></>}
+          <button className="icon-button mobile-menu" onClick={() => setMobileNav((value) => !value)} aria-label="Menú">{mobileNav ? <X size={20} /> : <Menu size={20} />}</button>
         </div>
       </header>
-      {loginError && <div className="error" role="alert">{loginError}</div>}{error && <div className="error" role="alert">{error}</div>}{sessionNotice && <div className="session-notice" role="status">{sessionNotice}</div>}
-      <VerticalSelector value={activeVertical} onChange={handleVerticalChange} />
-      {isDemo && <p className="demo-caption">Datos ficticios para explorar el CRM · 12 registros por línea</p>}
-      {loginOpen && !session.authenticated && <div className="sheet-layer" onMouseDown={(event) => { if (event.target === event.currentTarget) setLoginOpen(false); }}><form className="login-sheet" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}><div className="sheet-header"><div><span className="eyebrow">Acceso privado</span><h2>Desbloquear datos reales</h2></div><button type="button" className="icon-button" onClick={() => setLoginOpen(false)} aria-label="Cerrar"><X size={20} /></button></div><label className="login-sheet__field"><span>Contraseña</span><input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label>{loginError && <p className="field-error" role="alert">{loginError}</p>}<button className="btn btn--primary login-sheet__submit" disabled={!password || loginLoading}>{loginLoading ? "Ingresando…" : "Ingresar"}</button></form></div>}
-      {idleWarning && <div className="modal-backdrop" role="presentation"><div className="session-warning" role="alertdialog" aria-modal="true" aria-labelledby="idle-title"><h2 id="idle-title">Tu sesión se cerrará por inactividad.</h2><div className="session-warning__actions"><button className="btn btn--primary" onClick={() => void handleContinueSession()}>Continuar sesión</button><button className="btn" onClick={() => endRealSession("Cerraste la sesión. Volvimos al modo demo.")}>Salir ahora</button></div></div></div>}
-      <Kpis leads={leads} />
-      <Filters vertical={activeVertical} leads={leads} search={search} setSearch={setSearch} filters={filters} setFilters={setFilters} sort={sort} setSort={setSort} onExport={exportVisible} onActivity={recordUserActivity} />
-      {loading && leads.length === 0 ? <div className="loading"><span className="spinner" aria-hidden="true" />Cargando leads…</div> : <LeadTable leads={filtered} selectedId={selectedLead?.id} onSelect={setSelectedLead} onActivity={recordUserActivity} />}
-      {selectedLead && <LeadDetail lead={selectedLead} onClose={() => setSelectedLead(null)} onActivity={recordUserActivity} />}
+
+      {notice && <div className="notice" role="status"><span>{notice}</span><button className="icon-button" onClick={() => setNotice("")} aria-label="Cerrar aviso"><X size={16} /></button></div>}
+
+      {preview && <main id="top">
+        <section className="hero">
+          <div className="hero__copy">
+            <span className="eyebrow">CRM liviano para vender mejor</span>
+            <h1>Tus contactos.<br /><em>En orden.</em></h1>
+            <p>LeadX reúne lo que importa para avanzar una relación comercial: quién es, en qué estado está y qué tiene que pasar después.</p>
+            <div className="hero__actions"><button className="btn btn--signal btn--large" onClick={() => setAuthOpen("register")}>Crear espacio gratis <ArrowRight size={18} /></button><a className="btn btn--quiet btn--large" href="#demo">Ver demo</a></div>
+            <div className="hero__proof"><span><Check size={15} /> Gratis hasta 100 contactos</span><span><Check size={15} /> Sin tarjeta</span><span><Check size={15} /> Sin vencimiento</span></div>
+          </div>
+          <div className="hero__aside" aria-hidden="true">
+            <div className="hero-number">100</div><span>contactos gratis<br />para empezar</span>
+          </div>
+        </section>
+
+        <section className="statement"><span>Menos CRM.</span><strong>Más próxima acción.</strong><p>No necesitás otra suite enorme. Necesitás saber a quién llamar, qué prometiste y qué sigue.</p></section>
+      </main>}
+
+      <ContactDesk
+        contacts={shownContacts}
+        preview={preview}
+        plan={plan}
+        onAdd={() => preview ? setAuthOpen("register") : setEditorOpen(true)}
+        onOpen={(contact) => preview ? setNotice("Esta es una demo con datos ficticios. Creá tu espacio gratis para guardar cambios.") : setSelected(contact)}
+      />
+
+      {preview && <>
+        <section className="how" id="como-funciona">
+          <div className="section-heading"><span className="eyebrow">Cómo funciona</span><h2>Una disciplina comercial simple.</h2></div>
+          <div className="steps">
+            <article><span>01</span><h3>Guardá el contacto</h3><p>Persona, empresa y la mínima información útil. Nada de completar un formulario infinito.</p></article>
+            <article><span>02</span><h3>Marcá dónde está</h3><p>Nuevo, contactado, calificado, propuesta, cliente o pausado. Todos entienden el estado.</p></article>
+            <article><span>03</span><h3>Definí qué sigue</h3><p>Una próxima acción clara transforma una lista de nombres en un pipeline que se mueve.</p></article>
+          </div>
+        </section>
+
+        <section className="pricing" id="precios">
+          <div className="section-heading"><span className="eyebrow">Precios</span><h2>Gratis hasta que realmente crezcas.</h2><p>El plan Free no vence. Si llegás al límite, tus contactos quedan intactos: simplemente no agregás nuevos hasta pasar a Pro.</p></div>
+          <div className="pricing-grid">
+            <article className="plan-card plan-card--free">
+              <div><span className="plan-label">Free</span><strong className="plan-price">$0</strong><small>para siempre</small></div>
+              <ul><li><Check size={16} /> Hasta 100 contactos</li><li><Check size={16} /> Estados y próxima acción</li><li><Check size={16} /> Notas, búsqueda y filtros</li><li><Check size={16} /> Exportación CSV</li><li><Check size={16} /> Sin tarjeta ni vencimiento</li></ul>
+              <button className="btn btn--signal btn--wide" onClick={() => setAuthOpen("register")}>Empezar gratis</button>
+            </article>
+            <article className="plan-card plan-card--pro">
+              <div className="plan-card__tag">En preparación</div>
+              <div><span className="plan-label">Pro</span><strong className="plan-price"><InfinityIcon size={34} /></strong><small>para equipos que crecen</small></div>
+              <ul><li><Sparkles size={16} /> Contactos sin límite</li><li><Sparkles size={16} /> Colaboración de equipo</li><li><Sparkles size={16} /> Automatizaciones comerciales</li><li><Sparkles size={16} /> Reportes avanzados</li><li><Sparkles size={16} /> Soporte humano</li></ul>
+              <button className="btn btn--ink btn--wide" onClick={() => void wantPro()}>Quiero Pro</button>
+            </article>
+          </div>
+        </section>
+
+        <section className="final-cta"><Users size={28} /><h2>Empezá con los próximos 100.</h2><p>Sin migración, sin tarjeta, sin configurar una empresa entera antes de ver valor.</p><button className="btn btn--signal btn--large" onClick={() => setAuthOpen("register")}>Crear espacio gratis <ArrowRight size={18} /></button></section>
+      </>}
+
+      {!preview && <section className="workspace-plan">
+        <div><span className="eyebrow">Plan {plan.plan === "free" ? "Free" : "Pro"}</span><h2>{plan.limit === null ? "Sin límites." : `${plan.remaining} lugares disponibles.`}</h2><p>{plan.limit === null ? "Tu espacio no tiene límite de contactos." : `Usaste ${plan.count} de ${plan.limit}. Si llegás a 100, nada se borra: sólo se pausa la creación de nuevos contactos.`}</p></div>
+        {plan.plan === "free" && <button className="btn btn--ink" onClick={() => void wantPro()}>Avisame por Pro <ArrowRight size={16} /></button>}
+      </section>}
+
+      <footer><a className="wordmark" href="#top">Lead<span>X</span></a><p>CRM liviano para equipos comerciales. Piloto público 2026.</p><span>Free hasta 100 contactos.</span></footer>
+
+      {authOpen && <AuthDialog mode={authOpen} onClose={() => setAuthOpen(null)} onSuccess={(next) => void authSuccess(next)} />}
+      {(editorOpen || selected) && session.authenticated && <ContactEditor contact={selected} onClose={() => { setEditorOpen(false); setSelected(null); }} onSave={saveContact} onDelete={selected ? deleteContact : undefined} />}
     </div>
   );
 }

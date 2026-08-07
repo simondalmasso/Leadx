@@ -1,65 +1,32 @@
-import type { Lead, LeadVertical } from "./types";
+import type { Contact } from "./types";
 
-const names = ["Martín Demo", "Laura Ejemplo", "Nicolás Prueba", "Sofía Ficticia", "Tomás Muestra", "Valentina Demo", "Agustín Ejemplo", "Camila Prueba", "Bruno Ficticio", "Julieta Muestra", "Mateo Demo", "Emilia Ejemplo"];
-const provinces = ["Santa Fe", "Córdoba", "Buenos Aires", "Entre Ríos", "Mendoza", "La Pampa"];
-const statuses = ["Nuevo", "Contactado", "Calificado", "Propuesta", "Ganado", "Perdido"] as const;
-const priorities = ["Alta", "Media", "Baja"] as const;
-const urgencies = ["alta", "media", "baja"] as const;
-const brands = ["Case IH", "New Holland", "Case IH", "New Holland"];
-const machines = ["Cosechadora", "Tractor", "Sembradora", "Pulverizadora"];
 const now = Date.now();
+const ago = (days: number, hours = 0) => new Date(now - ((days * 24 + hours) * 60 * 60 * 1000)).toISOString();
 
-function common(index: number, vertical: LeadVertical): Lead {
-  const phone = `+54 9 342 555 ${String(1100 + index).padStart(4, "0")}`;
-  return {
-    id: `demo_${vertical}_${index + 1}`,
-    vertical,
-    name: names[index],
-    persona: names[index],
-    province: provinces[index % provinces.length],
-    provincia: provinces[index % provinces.length],
-    phone,
-    telefono: phone,
-    channel: index === 8 ? "messenger" : "whatsapp",
-    assigned_to: index % 3 ? "Sin asignar" : "Equipo comercial",
-    status: statuses[index % 6],
-    _status: statuses[index % 6],
-    priority: priorities[index % 3],
-    _priority: priorities[index % 3],
-    created_at: new Date(now - (index + 1) * 3_600_000).toISOString(),
-    fecha_iso: new Date(now - (index + 1) * 3_600_000).toISOString(),
-    score: 90 - index * 4,
-    source: "demo",
-    source_label: index === 8 ? "Messenger" : "WhatsApp",
-    whatsapp_confirmed: index !== 8,
-    _isDemo: true,
-  };
-}
-
-export const DEMO_FOTOMULTAS: Lead[] = names.map((_, index) => ({
-  ...common(index, "fotomultas"),
-  snippet: ["Transferencia detenida por una infracción pendiente.", "Consulta por fotomulta de velocidad en ruta.", "Necesita presentar un descargo antes del vencimiento."][index % 3],
-  vertical_data: {
-    plate: `DE${String(100 + index).padStart(3, "0")}MO`,
-    municipality: ["Santa Fe", "Rosario", "Córdoba"][index % 3],
-    violation_type: ["Exceso de velocidad", "Semáforo en rojo", "Estacionamiento"][index % 3],
-    estimated_amount: 120_000 + index * 7_500,
-    due_date: "2026-08-10",
-  },
+export const DEMO_CONTACTS: Contact[] = [
+  ["Lucía Torres", "Nómada Studio", "lucia@nomada.demo", "+54 9 11 5555 0101", "Calificado", "Formulario web", "Enviar propuesta de identidad visual", 0, 4],
+  ["Martín Acosta", "Brava Café", "martin@brava.demo", "+54 9 341 555 0122", "Propuesta", "Referido", "Confirmar presupuesto y fecha de implementación", 0, 9],
+  ["Sofía Herrera", "Lumen Arquitectura", "sofia@lumen.demo", "+54 9 342 555 0148", "Contactado", "Instagram", "Retomar conversación el martes", 1, 2],
+  ["Tomás Rivas", "Surco Tech", "tomas@surco.demo", "+54 9 351 555 0190", "Nuevo", "Landing", "Primera llamada de descubrimiento", 1, 8],
+  ["Camila Méndez", "Casa Norte", "camila@casanorte.demo", "+54 9 261 555 0184", "Cliente", "Evento", "Revisión mensual de resultados", 2, 3],
+  ["Agustín Vidal", "Ronda Legal", "agustin@ronda.demo", "+54 9 11 5555 0166", "Calificado", "LinkedIn", "Compartir caso de uso del equipo comercial", 2, 10],
+  ["Valentina Paz", "Atelier 44", "valentina@atelier44.demo", "+54 9 342 555 0117", "Pausado", "Referido", "Revisar nuevamente el mes próximo", 3, 1],
+  ["Nicolás Serra", "Marea Commerce", "nicolas@marea.demo", "+54 9 341 555 0150", "Contactado", "WhatsApp", "Enviar integración disponible", 3, 7],
+  ["Julieta Bianchi", "Cauce Salud", "julieta@cauce.demo", "+54 9 11 5555 0131", "Nuevo", "Formulario web", "Calificar necesidad y tamaño de equipo", 4, 0],
+  ["Federico Luna", "Delta Obras", "federico@delta.demo", "+54 9 351 555 0175", "Propuesta", "Google", "Resolver observaciones del contrato", 4, 8],
+  ["Paula Álvarez", "Mono Estudio", "paula@mono.demo", "+54 9 342 555 0189", "Cliente", "Referido", "Pedir testimonio del onboarding", 5, 5],
+  ["Renzo Gómez", "Terracota", "renzo@terracota.demo", "+54 9 261 555 0108", "Calificado", "Newsletter", "Agendar demo con socio", 6, 3],
+].map(([name, company, email, phone, status, source, next_action, days, hours], index) => ({
+  id: `demo-${index + 1}`,
+  name: String(name),
+  company: String(company),
+  email: String(email),
+  phone: String(phone),
+  status: status as Contact["status"],
+  source: String(source),
+  notes: index % 3 === 0 ? "Contacto ficticio de la demo pública. Ningún dato de esta vista pertenece a una persona real." : "",
+  next_action: String(next_action),
+  created_at: ago(Number(days), Number(hours)),
+  updated_at: ago(Number(days), Number(hours)),
+  demo: true,
 }));
-
-export const DEMO_REPUESTOS: Lead[] = names.map((_, index) => ({
-  ...common(index, "repuestos_agricolas"),
-  snippet: ["Busca disponibilidad inmediata para la próxima campaña.", "Solicita cotización y plazo de entrega del repuesto.", "Necesita reemplazo urgente para volver a trabajar."][index % 3],
-  vertical_data: {
-    brand: brands[index % 4],
-    machine_type: machines[index % 4],
-    model: ["Axial-Flow 7130", "T7.245", "Precision 500", "Patriot 350"][index % 4],
-    part_number: `FX-${87_312_000 + index * 17}`,
-    quantity: index % 3 + 1,
-    urgency: urgencies[index % 3],
-  },
-}));
-
-export const DEMO_LEADS: Lead[] = [...DEMO_FOTOMULTAS, ...DEMO_REPUESTOS];
-export const demoByVertical = (vertical: LeadVertical): Lead[] => vertical === "fotomultas" ? DEMO_FOTOMULTAS : DEMO_REPUESTOS;
