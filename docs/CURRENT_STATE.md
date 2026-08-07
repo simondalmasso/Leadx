@@ -17,7 +17,7 @@ CANDIDATE_SOURCE_SHA=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
 CANDIDATE_CI_RUN=31188352572
 CANDIDATE_CI_JOB=92898534266
 CANDIDATE_CI=PASS
-RELEASE_STATUS=AUTHORIZED_WORKERS_FIRST_RETRY_AFTER_VERIFIED_PREFLIGHT_FIX
+RELEASE_STATUS=AUTHORIZED_WORKERS_FIRST_RETRY_2_RUNNING_OR_PENDING
 PRODUCTION_URL=https://leadx.simondalmasso44.workers.dev/
 FREE_CONTACT_LIMIT=100
 DEMO=PUBLIC_SYNTHETIC_ONLY
@@ -84,7 +84,7 @@ FIX_VALIDATION=CI_PASS
 ```
 
 ## Release gate
-Este commit autoriza el único reintento Workers-first después de identificar y corregir la causa anterior. No declarar público hasta registrar: deployment/version anteriores y nuevos, 100% traffic, HTTP/browser smoke PASS, purge de KV legacy, cero keys legacy remanentes y smoke post-purge PASS. Si el smoke pre-purge falla, el workflow debe restaurar el version ID anterior.
+Este commit inicia el único reintento Workers-first después de identificar y corregir la causa anterior. No declarar público hasta registrar deployment/version anteriores y nuevos, 100% traffic, HTTP/browser smoke PASS, purge de KV legacy, cero keys legacy remanentes y smoke post-purge PASS. Si el smoke pre-purge falla, el workflow debe restaurar el version ID anterior.
 
 ## Riesgos conocidos del piloto
 - Workers KV tiene consistencia eventual; colaboración concurrente multiusuario queda fuera de este piloto.
@@ -93,5 +93,5 @@ Este commit autoriza el único reintento Workers-first después de identificar y
 
 ## Próximo paso exacto
 ```text
-NEXT_EXACT_ACTION=EXECUTE_AND_VERIFY_SINGLE_WORKERS_FIRST_RETRY_THEN_RECONCILE_GITHUB_AND_DRIVE
+NEXT_EXACT_ACTION=VERIFY_WORKERS_FIRST_RETRY_2_AND_PRODUCTION_THEN_RECONCILE_GITHUB_AND_DRIVE
 ```
