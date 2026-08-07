@@ -8,6 +8,7 @@ const root = path.resolve(here, "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const app = read("web/src/App.tsx");
 const styles = read("web/src/styles.css");
+const actionQueueStyles = read("web/src/action-queue.css");
 const api = read("web/src/lib/api.ts");
 const demo = read("web/src/demo-leads.ts");
 const worker = read("worker/runtime.mjs");
@@ -49,6 +50,19 @@ test("critical product states are intentionally rendered", () => {
 test("dialogs are explicit accessible surfaces", () => { assert.match(app, /role="dialog"/); assert.match(app, /aria-modal="true"/); assert.match(styles, /:focus-visible/); });
 test("public product avoids decorative AI icon language", () => assert.doesNotMatch(app, /Sparkles/));
 test("motion respects reduced-motion preference", () => assert.match(styles, /prefers-reduced-motion/));
+test("operational smart views prioritize next action without opaque scoring", () => {
+  for (const text of ["Pendientes", "Sin próxima", "Prioridad de acción", "Sin próxima acción"]) assert.match(app, new RegExp(text));
+  assert.match(app, /needsNextAction/);
+  assert.match(app, /actionPriority/);
+  assert.match(app, /updated_at/);
+  assert.doesNotMatch(app, /score_value|scoring_rule_version|AI score/i);
+});
+test("action queue controls remain explicit and touchable", () => {
+  assert.match(actionQueueStyles, /\.queue-views/);
+  assert.match(actionQueueStyles, /\.queue-view/);
+  assert.match(actionQueueStyles, /min-height: 52px/);
+  assert.match(actionQueueStyles, /--signal-primary/);
+});
 
 let passed = 0;
 for (const [name, fn] of tests) {

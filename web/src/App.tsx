@@ -18,11 +18,14 @@ import type { Contact, ContactStatus, PlanSnapshot, SessionInfo } from "./types"
 
 const FREE_CONTACT_LIMIT = 100;
 const STATUS_ORDER: ContactStatus[] = ["Nuevo", "Contactado", "Calificado", "Propuesta", "Cliente", "Pausado"];
+const ACTIVE_STATUSES = new Set<ContactStatus>(["Nuevo", "Contactado", "Calificado", "Propuesta"]);
 const EMPTY_PLAN: PlanSnapshot = { plan: "free", limit: FREE_CONTACT_LIMIT, count: 0, remaining: FREE_CONTACT_LIMIT };
 const EMPTY_CONTACT: Partial<Contact> = { name: "", company: "", email: "", phone: "", status: "Nuevo", source: "", notes: "", next_action: "" };
 
 type AuthMode = "register" | "login";
 type NoticeTone = "success" | "danger" | "info";
+type QueueView = "pending" | "missing" | "clients" | "all";
+type ContactSort = "action" | "recent" | "name";
 
 type ContactEditorProps = {
   contact?: Contact | null;
@@ -43,6 +46,33 @@ function contactSearch(contact: Contact) {
 
 function statusTone(status: ContactStatus) {
   return status.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replaceAll(" ", "-");
+}
+
+function isPending(contact: Contact) {
+  return ACTIVE_STATUSES.has(contact.status);
+}
+
+function needsNextAction(contact: Contact) {
+  return isPending(contact) && !contact.next_action.trim();
+}
+
+function actionPriority(a: Contact, b: Contact) {
+  const missingDelta = Number(needsNextAction(a)) - Number(needsNextAction(b));
+  if (missingDelta !== 0) return -missingDelta;
+  const aUpdated = Date.parse(a.updated_at || a.created_at) || 0;
+  const bUpdated = Date.parse(b.updated_at || b.created_at) || 0;
+  if (aUpdated !== bUpdated) return aUpdated - bUpdated;
+  return a.name.localeCompare(b.name, "es");
+}
+
+function actionReason(contact: Contact) {
+  if (needsNextAction(contact)) return "Sin próxima acción";
+  if (contact.status === "Nuevo") return "Resolver primer contacto";
+  if (contact.status === "Contactado") return "Seguimiento pendiente";
+  if (contact.status === "Calificado") return "Oportunidad calificada";
+  if (contact.status === "Propuesta") return "Propuesta abierta";
+  if (contact.status === "Cliente") return "Cliente";
+  return "Pausado";
 }
 
 function exportCsv(contacts: Contact[]) {
@@ -225,20 +255,39 @@ type ContactDeskProps = {
 function ContactDesk({ contacts, preview, plan, loading = false, error = "", onAdd, onOpen, onRetry }: ContactDeskProps) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<ContactStatus | "Todos">("Todos");
-  const [sort, setSort] = useState<"recent" | "name">("recent");
+  const [sort, setSort] = useState<ContactSort>("action");
+  const [queueView, setQueueView] = useState<QueueView>("pending");
+
+  const pending = contacts.filter(isPending).length;
+  const missing = contacts.filter(needsNextAction).length;
+  const clients = contacts.filter((contact) => contact.status === "Cliente").length;
 
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return contacts
-      .filter((contact) => (!needle || contactSearch(contact).includes(needle)) && (status === "Todos" || contact.status === status))
-      .sort((a, b) => sort === "name" ? a.name.localeCompare(b.name, "es") : Date.parse(b.created_at) - Date.parse(a.created_at));
-  }, [contacts, search, sort, status]);
+      .filter((contact) => {
+        const queueMatch = queueView === "all"
+          || (queueView === "pending" && isPending(contact))
+          || (queueView === "missing" && needsNextAction(contact))
+          || (queueView === "clients" && contact.status === "Cliente");
+        return queueMatch && (!needle || contactSearch(contact).includes(needle)) && (status === "Todos" || contact.status === status);
+      })
+      .sort((a, b) => {
+        if (sort === "name") return a.name.localeCompare(b.name, "es");
+        if (sort === "recent") return Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at);
+        return actionPriority(a, b);
+      });
+  }, [contacts, queueView, search, sort, status]);
 
-  const active = contacts.filter((contact) => !["Cliente", "Pausado"].includes(contact.status)).length;
-  const qualified = contacts.filter((contact) => ["Calificado", "Propuesta", "Cliente"].includes(contact.status)).length;
-  const clients = contacts.filter((contact) => contact.status === "Cliente").length;
   const atLimit = !preview && plan.limit !== null && plan.remaining === 0;
-  const filtered = Boolean(search.trim()) || status !== "Todos";
+  const queryFiltered = Boolean(search.trim()) || status !== "Todos";
+  const viewEmpty = queueView === "pending"
+    ? { eyebrow: "Cola en cero", title: "No queda nada pendiente acá.", text: "Los clientes y pausados siguen disponibles en sus vistas. Cuando una relación vuelva a estar activa, reaparece en la cola." }
+    : queueView === "missing"
+      ? { eyebrow: "Todo definido", title: "Cada pendiente tiene un próximo paso.", text: "Ésa es la disciplina que importa: ninguna relación activa queda sin saber qué sigue." }
+      : queueView === "clients"
+        ? { eyebrow: "Todavía no", title: "No hay clientes en esta vista.", text: "Cuando una relación llegue a Cliente, va a quedar acá sin mezclarse con la cola operativa." }
+        : { eyebrow: "Sin registros", title: "No hay contactos para mostrar.", text: "Probá otra vista o sumá un contacto nuevo." };
 
   return (
     <section className={`desk ${preview ? "desk--preview" : "desk--workspace"}`} id={preview ? "demo" : "workspace"} aria-labelledby="desk-title">
@@ -258,19 +307,26 @@ function ContactDesk({ contacts, preview, plan, loading = false, error = "", onA
 
       <div className="signal-strip" aria-label="Resumen comercial">
         <div><span>Contactos</span><strong>{contacts.length}</strong></div>
-        <div><span>Activos</span><strong>{active}</strong></div>
-        <div><span>Calificados+</span><strong>{qualified}</strong></div>
+        <div><span>Pendientes</span><strong>{pending}</strong></div>
+        <div><span>Sin próxima</span><strong>{missing}</strong></div>
         <div><span>Clientes</span><strong>{clients}</strong></div>
       </div>
 
+      <nav className="queue-views" aria-label="Vistas operativas">
+        <button className={queueView === "pending" ? "queue-view queue-view--active" : "queue-view"} type="button" aria-pressed={queueView === "pending"} onClick={() => setQueueView("pending")}><span>Pendientes</span><strong>{pending}</strong></button>
+        <button className={queueView === "missing" ? "queue-view queue-view--active" : "queue-view"} type="button" aria-pressed={queueView === "missing"} onClick={() => setQueueView("missing")}><span>Sin próxima</span><strong>{missing}</strong></button>
+        <button className={queueView === "clients" ? "queue-view queue-view--active" : "queue-view"} type="button" aria-pressed={queueView === "clients"} onClick={() => setQueueView("clients")}><span>Clientes</span><strong>{clients}</strong></button>
+        <button className={queueView === "all" ? "queue-view queue-view--active" : "queue-view"} type="button" aria-pressed={queueView === "all"} onClick={() => setQueueView("all")}><span>Todos</span><strong>{contacts.length}</strong></button>
+      </nav>
+
       <div className="desk-toolbar">
-        <label className="search-field"><Search size={18} aria-hidden="true" /><span className="sr-only">Buscar contactos</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar persona, empresa, email…" aria-label="Buscar contactos" /></label>
+        <label className="search-field"><Search size={18} aria-hidden="true" /><span className="sr-only">Buscar contactos</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar dentro de esta vista…" aria-label="Buscar contactos" /></label>
         <label className="select-field"><span>Estado</span><select value={status} onChange={(e) => setStatus(e.target.value as ContactStatus | "Todos")}><option>Todos</option>{STATUS_ORDER.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} aria-hidden="true" /></label>
-        <label className="select-field"><span>Orden</span><select value={sort} onChange={(e) => setSort(e.target.value as "recent" | "name")}><option value="recent">Más recientes</option><option value="name">Nombre A–Z</option></select><ChevronDown size={15} aria-hidden="true" /></label>
+        <label className="select-field"><span>Orden</span><select value={sort} onChange={(e) => setSort(e.target.value as ContactSort)}><option value="action">Prioridad de acción</option><option value="recent">Actividad reciente</option><option value="name">Nombre A–Z</option></select><ChevronDown size={15} aria-hidden="true" /></label>
       </div>
 
       <div className="contact-ledger" aria-label="Contactos">
-        <div className="contact-ledger__head" aria-hidden="true"><span>Contacto</span><span>Estado</span><span>Próxima acción</span><span>Creado</span></div>
+        <div className="contact-ledger__head" aria-hidden="true"><span>Contacto</span><span>Estado</span><span>Próxima acción</span><span>Actividad</span></div>
 
         {loading && <div className="ledger-loading" aria-live="polite" aria-label="Cargando contactos">{Array.from({ length: 5 }).map((_, index) => <span key={index} />)}</div>}
 
@@ -280,13 +336,14 @@ function ContactDesk({ contacts, preview, plan, loading = false, error = "", onA
           <button className="contact-row" key={contact.id} onClick={() => onOpen(contact)}>
             <span className="contact-main"><strong>{contact.name}</strong><small>{contact.company || "Sin empresa"}<b aria-hidden="true">·</b>{contact.email || contact.phone || "Sin dato de contacto"}</small></span>
             <Status value={contact.status} />
-            <span className="contact-next"><small>Próxima</small><strong>{contact.next_action || "Definir próxima acción"}</strong></span>
-            <span className="contact-date">{formatDate(contact.created_at)}</span>
+            <span className="contact-next"><small className={needsNextAction(contact) ? "contact-next__meta contact-next__meta--missing" : "contact-next__meta"}>{actionReason(contact)}</small><strong>{contact.next_action || "Definir próxima acción"}</strong></span>
+            <span className="contact-date">{formatDate(contact.updated_at || contact.created_at)}</span>
           </button>
         ))}
 
-        {!loading && !error && contacts.length === 0 && !filtered && <div className="state-panel state-panel--empty"><span className="eyebrow">Mesa vacía</span><strong>Tu primer cliente empieza acá.</strong><p>Guardá sólo lo que necesitás para saber dónde está y qué sigue.</p><button className="btn btn--signal" onClick={onAdd}><Plus size={16} /> Nuevo contacto</button></div>}
-        {!loading && !error && contacts.length > 0 && !visible.length && <div className="state-panel state-panel--empty-search"><span className="eyebrow">Sin coincidencias</span><strong>No aparece ninguna señal con ese filtro.</strong><p>Probá otra búsqueda o volvé a “Todos”.</p></div>}
+        {!loading && !error && contacts.length === 0 && !queryFiltered && <div className="state-panel state-panel--empty"><span className="eyebrow">Mesa vacía</span><strong>Tu primer cliente empieza acá.</strong><p>Guardá sólo lo que necesitás para saber dónde está y qué sigue.</p><button className="btn btn--signal" onClick={onAdd}><Plus size={16} /> Nuevo contacto</button></div>}
+        {!loading && !error && contacts.length > 0 && !visible.length && queryFiltered && <div className="state-panel state-panel--empty-search"><span className="eyebrow">Sin coincidencias</span><strong>No aparece ninguna señal con ese filtro.</strong><p>Probá otra búsqueda, estado o vista.</p></div>}
+        {!loading && !error && contacts.length > 0 && !visible.length && !queryFiltered && <div className="state-panel state-panel--empty-view"><span className="eyebrow">{viewEmpty.eyebrow}</span><strong>{viewEmpty.title}</strong><p>{viewEmpty.text}</p></div>}
       </div>
     </section>
   );
@@ -465,7 +522,7 @@ export default function App() {
           <div className="steps">
             <article><span>01 / Contact</span><h3>¿Quién es?</h3><p>Persona, empresa y la mínima información útil. Nada de completar un formulario infinito.</p></article>
             <article><span>02 / Signal</span><h3>¿Dónde está?</h3><p>Nuevo, contactado, calificado, propuesta, cliente o pausado. Un estado legible, no un dashboard de colores.</p></article>
-            <article><span>03 / Next</span><h3>¿Qué sigue?</h3><p>Una próxima acción clara transforma una lista de nombres en trabajo comercial concreto.</p></article>
+            <article><span>03 / Next</span><h3>¿Qué sigue?</h3><p>LeadX pone primero lo que falta resolver y separa las relaciones sin próxima acción para que ninguna quede flotando.</p></article>
           </div>
         </section>
 
@@ -474,7 +531,7 @@ export default function App() {
           <div className="pricing-grid">
             <article className="plan-card plan-card--free">
               <header><span className="plan-label">Free · disponible ahora</span><strong className="plan-price">$0</strong><small>para siempre</small></header>
-              <ul><li><Check size={16} /> Hasta 100 clientes</li><li><Check size={16} /> Estados y próxima acción</li><li><Check size={16} /> Notas, búsqueda y filtros</li><li><Check size={16} /> Exportación CSV</li><li><Check size={16} /> Sin tarjeta ni vencimiento</li></ul>
+              <ul><li><Check size={16} /> Hasta 100 clientes</li><li><Check size={16} /> Vistas operativas y próxima acción</li><li><Check size={16} /> Notas, búsqueda y filtros</li><li><Check size={16} /> Exportación CSV</li><li><Check size={16} /> Sin tarjeta ni vencimiento</li></ul>
               <button className="btn btn--signal btn--wide" onClick={() => setAuthOpen("register")}>Crear espacio gratis</button>
             </article>
             <article className="plan-card plan-card--pro">

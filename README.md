@@ -1,15 +1,27 @@
 # LeadX
 
-LeadX es un CRM web liviano para ordenar contactos comerciales y mantener visible la próxima acción.
+**Tus clientes. En orden.**
+
+LeadX es una mesa de señales comerciales para ver **a quién prestar atención y qué tiene que pasar después**.
+
+```text
+CONTACT → SIGNAL → NEXT ACTION
+```
 
 ## Producto público
 - Demo abierta con datos 100% ficticios.
 - Registro/login con email y contraseña.
-- Espacio privado por usuario.
+- Workspace privado por usuario.
 - Contactos con empresa, email, teléfono, estado, fuente, notas y próxima acción.
-- Plan Free permanente hasta 100 contactos.
-- Al alcanzar el límite no se borra información; sólo se bloquea la creación de nuevos contactos hasta Pro.
-- Exportación CSV.
+- Búsqueda, filtros y exportación CSV.
+- Plan Free permanente hasta 100 clientes/contactos.
+- Al alcanzar el límite no se borra información; sólo se bloquea la creación de nuevos registros.
+- Pro se presenta como próxima capa; todavía no existe billing integrado.
+
+## Signal Desk V2
+La interfaz prioriza `contacto → señal → próxima acción` y usa una dirección editorial, precisa y contenida: neutrales cálidos, tinta, vermellón como señal, reglas en lugar de card soup y una composición mobile propia.
+
+El sistema evita dependencias visuales remotas innecesarias y conserva accesibilidad, `focus-visible`, `prefers-reduced-motion`, targets táctiles y estados funcionales explícitos.
 
 ## Stack
 - React + Vite + TypeScript.
@@ -23,7 +35,7 @@ LeadX es un CRM web liviano para ordenar contactos comerciales y mantener visibl
 - Cookies de sesión `HttpOnly`, `Secure`, `SameSite=Lax`.
 - CSP y headers defensivos.
 - No se guardan contraseñas en claro.
-- Los datos demo no son datos reales.
+- La demo pública no contiene datos reales.
 
 ## Desarrollo
 ```bash
@@ -32,5 +44,7 @@ npm --prefix web run build
 npm --prefix web test
 npm --prefix web run typecheck
 ```
+
+Estado operativo canónico: [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md)
 
 Producción: `https://leadx.simondalmasso44.workers.dev/`
