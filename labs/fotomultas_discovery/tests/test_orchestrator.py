@@ -3,9 +3,14 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from labs.fotomultas_discovery.orchestrator import run_cycle
+
+
+def recent_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def fake_discovery(_repo_root: Path, output: Path, *, timeout_seconds: int = 260):
@@ -14,7 +19,7 @@ def fake_discovery(_repo_root: Path, output: Path, *, timeout_seconds: int = 260
         "mode": "public_discovery_only",
         "target_vertical": "fotomultas",
         "production_access": False,
-        "generated_at": "2026-07-21T11:00:00+00:00",
+        "generated_at": recent_timestamp(),
         "candidates": [
             {
                 "id": "synthetic:cycle:1",
@@ -45,7 +50,7 @@ class OrchestratorTests(unittest.TestCase):
                                 "source_url": "https://consultainfracciones.seguridadvial.gob.ar/",
                                 "authorization_basis": "synthetic_test",
                                 "subject_ref_hash": "c" * 64,
-                                "checked_at": "2026-07-21T11:00:00+00:00",
+                                "checked_at": recent_timestamp(),
                                 "result_complete": True,
                                 "infractions": [
                                     {"id": "a", "status": "Vigente", "amount_ars": 600000},
