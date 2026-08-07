@@ -13,11 +13,12 @@
   }
   .brand{grid-template-columns:auto;grid-template-rows:auto}.brand::before,.app__subtitle{display:none}
   .app__title{grid-column:1;grid-row:1;width:108px;height:32px}
-  .desktop-login{display:none}.mobile-unlock{display:inline-flex;width:40px;min-height:44px;padding:0;border:0;font-size:0}.mobile-unlock svg{margin:0}
+  .desktop-login{display:none}.mobile-unlock{display:inline-flex;width:44px;min-height:44px;padding:0;border:0;font-size:0}.mobile-unlock svg{margin:0}
   .mobile-only{display:inline-flex}.app__actions{gap:10px}.mode-badge{padding:3px 0;font-size:8px}.mode-badge::before{width:5px;height:5px;margin-right:5px}
+  .icon-button{width:44px;min-width:44px;min-height:44px}
 
   .segmented-control{width:100%;gap:22px;overflow:auto;margin-bottom:21px;scrollbar-width:none}.segmented-control::-webkit-scrollbar{display:none}
-  .segmented-option{flex:0 0 auto;height:42px;min-width:max-content;padding:0 0 11px;font-size:11px}.segmented-option__full{display:none}.segmented-option__short{display:inline}
+  .segmented-option{flex:0 0 auto;height:44px;min-width:max-content;padding:0 0 11px;font-size:11px}.segmented-option__full{display:none}.segmented-option__short{display:inline}
 
   .demo-caption{margin:0 0 17px}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:23px}
