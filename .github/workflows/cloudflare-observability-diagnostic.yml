@@ -1,0 +1,29 @@
+name: LeadX Cloudflare Observability Diagnostic
+on:
+  push:
+    branches: ["release/leadx-public-v1"]
+    paths: ["diagnostics/CLOUDFLARE_SIGNUP_500"]
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Query error events around failed signup
+        env:
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          from=$(date -u -d '2026-08-07T13:36:45Z' +%s%3N)
+          to=$(date -u -d '2026-08-07T13:37:15Z' +%s%3N)
+          body=$(jq -cn --argjson from "$from" --argjson to "$to" '{queryId:"leadx-signup-500",timeframe:{from:$from,to:$to},view:"events",limit:200,parameters:{datasets:[],filterCombination:"and",filters:[{key:"$metadata.error",operation:"exists",type:"string"}]}}')
+          code=$(curl -sS -o response.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data-binary "$body" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/observability/telemetry/query")
+          echo "HTTP_STATUS=$code"
+          jq '{success,errors,messages,result:{events:(.result.events.events // [] | map({metadata:{service:."$metadata".service,status:."$metadata".status,error:."$metadata".error,errorTemplate:."$metadata".errorTemplate,scriptVersion:."$metadata".scriptVersion,duration:."$metadata".duration,cpuTime:."$metadata".cpuTime},message:."$metadata".message,dataset,source}))}}' response.json
+          test "$code" = "200"
