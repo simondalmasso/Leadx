@@ -63,3 +63,11 @@ jobs:
             exit 1
           }
           echo 'UI_DESIGN_CONTAINMENT=PASS'
+
+      - name: Upload static preview for visual QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: leadx-ui-preview-${{ github.event.pull_request.head.sha }}
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 2
