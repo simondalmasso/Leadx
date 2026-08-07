@@ -8,134 +8,141 @@ PROJECT=LeadX
 PRODUCT_DIRECTION=PUBLIC_GENERIC_CRM
 DESIGN_SYSTEM=SIGNAL_DESK
 DEFAULT_BRANCH=main
-PRE_RELEASE_MAIN_SHA=91672001c893815a1f31f9cfdd11b31a18a6968a
-PR=23
-PR_STATE=MERGED
-PR_MERGE_SHA=3adde0dbeff46e6d012e848266113be22bd5def1
-OPEN_PRS=0
-SUPERSEDED_PRS_CLOSED=1,14,19,20,22
+SOURCE_MERGE_SHA=7749462e5ec990f0c924dc4108d7ea842691da64
+RECONCILIATION_PR=24
+RECONCILIATION_PR_STATE=MERGED
 PRODUCTION_URL=https://leadx.simondalmasso44.workers.dev/
 PRODUCTION_RELEASE=leadx-public-freemium-v1
 PRODUCTION_DEPLOY=PASS
-PRODUCTION_DEPLOYED_GIT_SHA=27756c854a2719af42c683fff95faf66a70e25ab
-ACTIVE_DEPLOYMENT_ID=2c092d39-38c7-404a-93d2-44979e88e2c6
-ACTIVE_VERSION_ID=deff1f6a-4664-4c2e-a595-91ba91aeae52
+PRODUCTION_DEPLOYED_GIT_SHA=8bc76173e4d90e60445f99ec56c52caabae9be6e
+ACTIVE_DEPLOYMENT_ID=1e076a5e-b3b9-4c3f-a087-09100bdb51f3
+ACTIVE_VERSION_ID=e06c6606-6fdc-4363-a9a4-7915ffc7a787
 ACTIVE_TRAFFIC=100
-ACTIVE_JS_ASSET=/assets/index-C_HJKQA3.js
-FREE_CONTACT_LIMIT=100
+ACTIVE_JS_ASSET=/assets/index-TYa2Tc_i.js
+FREE_CUSTOMER_LIMIT=100
 PUBLIC_SESSION_MODE=preview
 DEMO=PUBLIC_SYNTHETIC_ONLY
-LEGACY_KV_KEYS_PURGED=6
 REMAINING_LEGACY_KV_KEYS=0
 SCRAPING_DISCOVERY=REMOVED_FROM_ACTIVE_TREE
 OLD_VERTICALS=REMOVED_FROM_ACTIVE_PRODUCT
+WORKERS_FIRST=YES
 GITHUB_RECONCILIATION=PASS
 REDEPLOY_AFTER_MERGE=NO
 ```
 
 ## Producto público
-LeadX es un CRM web genérico y liviano para ordenar contactos comerciales y mantener visible la próxima acción.
+LeadX es un CRM web genérico y liviano. La propuesta pública habla de **clientes**: `Tus clientes. En orden.`
 
 Modelo comercial vigente:
 - demo pública abierta con datos 100% ficticios;
 - registro/login por email y contraseña;
 - workspace privado por usuario;
-- CRUD de contactos, estados, próxima acción, notas, búsqueda, filtros y exportación CSV;
-- plan Free permanente hasta 100 contactos;
+- CRUD interno de contactos, estados, próxima acción, notas, búsqueda, filtros y exportación CSV;
+- plan Free permanente hasta 100 clientes/contactos almacenados;
 - sin tarjeta y sin vencimiento;
-- al alcanzar 100 contactos no se borra información: sólo se bloquea crear nuevos;
+- al alcanzar el límite no se borra información: sólo se bloquea crear nuevos registros;
 - Pro está presentado como siguiente capa comercial, sin billing integrado todavía.
 
-Las verticales Fotomultas/Repuestos agrícolas, los datasets anteriores, scraping/discovery/radar, importadores y endpoints legacy fueron retirados del árbol activo. La historia Git no se reescribió.
+Las verticales Fotomultas/Repuestos agrícolas, datasets anteriores, scraping/discovery/radar, importadores y endpoints legacy están fuera del árbol activo.
 
-## Arquitectura activa
+## Autenticación — hotfix productivo
+El registro público inicialmente devolvía Cloudflare Worker exception 1101. El login de usuario inexistente respondía normalmente, por lo que se aisló el fallo al cálculo de contraseña durante registro.
+
+Corrección desplegada:
 ```text
-PUBLIC_BROWSER
-  -> React/Vite landing + demo ficticia
-  -> registro/login
-  -> workspace privado
-  -> /api/* Cloudflare Worker
-  -> Workers KV aislado por user-id
+PASSWORD_KDF=PBKDF2-SHA256
+PASSWORD_KDF_ITERATIONS=10000
+PASSWORD_SALT=random_per_user
+SESSION_TOKEN=random_256_bit
+SESSION_TTL=30_days
+COOKIE=HttpOnly+Secure+SameSite_Lax
+AUTH_RATE_LIMIT=enabled
+PUBLIC_SESSION_BOOTSTRAP_TIMEOUT_MS=3000
 ```
 
-## Seguridad activa
-- PBKDF2-SHA256, 150.000 iteraciones y salt aleatorio.
-- sesión aleatoria 256-bit almacenada por hash en KV con TTL 30 días.
-- cookie HttpOnly + Secure + SameSite=Lax.
-- rate-limit binding para auth/escrituras.
-- CSP `frame-ancestors 'none'`.
-- límite Free validado en backend.
-- bootstrap público no puede quedar bloqueado indefinidamente: sesión aborta a los 3 s y degrada a preview; otras llamadas API tienen timeout finito.
+La reducción del costo PBKDF2 fue necesaria para mantener el registro dentro del presupuesto de CPU del Worker. Es adecuada para este piloto operativo, pero queda como deuda de seguridad revisar una arquitectura/KDF más fuerte antes de escalar exposición o valor de cuentas.
 
-## Validación pre-release y PR
+## Validación productiva final
 ```text
-CI_RUN=31190348835
-CI_JOB=92905314348
-CANDIDATE_HEAD=bbca1657f81bb7412e801f6dc9ad335d5821b715
-PUBLIC_PRODUCT_TESTS=13/13
+RELEASE_WORKFLOW=LeadX Public SaaS Workers-first Release
+RELEASE_RUN=31196841214
+RELEASE_JOB=92927017652
+RELEASE_SOURCE_SHA=8bc76173e4d90e60445f99ec56c52caabae9be6e
+WORKFLOW_CONCLUSION=success
+PUBLIC_PRODUCT_TESTS=14/14
 BUILD=PASS
 TYPECHECK=PASS
 WORKER_SYNTAX=PASS
-LEGACY_ACTIVE_RUNTIME=ABSENT
 WRANGLER_DRY_RUN=PASS
-TARGETED_BOOTSTRAP_HANG_TEST=PASS
-FINAL_PR_CI_RUN=31191155803
-FINAL_PR_HEAD=c004de29711f5725e6dd2726e9b8629dd736a2dc
-FINAL_PR_CI=success
-```
-
-## Release Workers-first
-```text
-RELEASE_RUN=31190568927
-RELEASE_JOB=92906030054
-DEPLOY_SOURCE_SHA=27756c854a2719af42c683fff95faf66a70e25ab
-PREVIOUS_VERSION_ID=8194e500-d692-40ef-acb6-cbfdda9e9b4e
-NEW_DEPLOYMENT_ID=2c092d39-38c7-404a-93d2-44979e88e2c6
-NEW_VERSION_ID=deff1f6a-4664-4c2e-a595-91ba91aeae52
+NEW_DEPLOYMENT_ID=1e076a5e-b3b9-4c3f-a087-09100bdb51f3
+NEW_VERSION_ID=e06c6606-6fdc-4363-a9a4-7915ffc7a787
 RUNTIME_PROPAGATION_READY=PASS
-ASSET_PROPAGATION_READY=PASS
-PRE_PURGE_BROWSER_DESKTOP_MOBILE=2/2_PASS
-LEGACY_KV_KEYS_BEFORE=6
-LEGACY_KV_KEYS_PURGED=6
-KV_AFTER=0
-WORKFLOW_CONCLUSION=failure
-WORKFLOW_FAILURE_SCOPE=single immediate HTTP assertion after successful purge
-ROLLBACK_AFTER_PURGE=NO
-```
-
-El workflow de release terminó rojo por una aserción HTTP inmediata después del purge. No hubo rollback en ese tramo. El Worker nuevo permaneció activo y se verificó luego de forma independiente.
-
-## Verificación productiva independiente post-release
-```text
-VERIFY_RUN=31190922275
-VERIFY_JOB=92907210684
-VERIFY_SOURCE_SHA=238af9d0c4b64f3067ce6c3f3d6184aba7018595
-VERIFY_MODE=READ_ONLY
-RUN_CONCLUSION=success
-ACTIVE_DEPLOYMENT_ID=2c092d39-38c7-404a-93d2-44979e88e2c6
-ACTIVE_VERSION_ID=deff1f6a-4664-4c2e-a595-91ba91aeae52
-ACTIVE_TRAFFIC=100
+PUBLIC_ASSET_PROPAGATION_READY=PASS
+DESKTOP_BROWSER_SMOKE=PASS
+MOBILE_BROWSER_SMOKE=PASS
+PRE_PURGE_PRODUCTION_SMOKE=PASS
+LEGACY_KV_KEYS_BEFORE=0
 REMAINING_LEGACY_KV_KEYS=0
-HEALTH=PASS
-SESSION_PREVIEW=PASS
-EXACT_JS_ASSET=PASS
-BROWSER_DESKTOP_MOBILE=2/2_PASS
-POST_RELEASE_ARTIFACT_ID=8998788961
-POST_RELEASE_ARTIFACT_DIGEST=sha256:1b47e725b4f55fdb11ca8ae6cbacfb6aa34ac2c6a5cd7f67bb143a61a29ce057
+POST_PURGE_SMOKE=PASS
+PRODUCTION_RELEASE=PASS
+RELEASE_ARTIFACT_ID=9001176118
+RELEASE_ARTIFACT_DIGEST=sha256:ab56287d87783ce9a3924ab6a88557cfd4dc357ff4e0c17ba7364c64f1362a47
 ```
 
-## Incidentes cerrados
-1. Parser del schema de deployments Cloudflare incompatible: corregido antes de deploy.
-2. Race de propagación de runtime: corregido con readiness polling; rollback previo exitoso.
-3. Race de assets estáticos: corregido con fingerprint gate; rollback previo exitoso.
-4. Bootstrap React bloqueado por session fetch sin timeout: reproducido, corregido y probado con sesión deliberadamente colgada.
-5. Aserción inmediata post-purge falló, pero el estado productivo posterior fue verificado por workflow read-only completo: fallo del gate temporal, no del producto.
+## Cuenta del propietario — verificación redactada
+No se documenta email ni contraseña.
+```text
+OWNER_ACCOUNT_REGISTRATION=PASS
+OWNER_ACCOUNT_REGISTER_HTTP=201
+OWNER_LOGIN=PASS
+OWNER_LOGIN_HTTP=200
+OWNER_SESSION=PASS
+OWNER_SESSION_MODE=workspace
+OWNER_LOGOUT=PASS
+OWNER_LOGOUT_HTTP=200
+```
+
+## Copy público verificado
+```text
+PUBLIC_TITLE=LeadX — Tus clientes, en orden
+PUBLIC_HERO=Tus clientes. En orden.
+FREE_COPY=Gratis hasta 100 clientes
+OLD_TUS_CONTACTOS_TITLE_PRESENT=NO
+```
+
+## GitHub reconciliado
+```text
+PR=24
+PR_TITLE=Fix public auth and client-facing copy
+PR_HEAD=07fae2c4ff74c3a268c3373db7ab48ae5fae4b4b
+PR_CI_RUN=31197112414
+PR_CI_JOB=92927950407
+PR_CI_CONCLUSION=success
+PR_MERGED=YES
+PR_MERGE_SHA=7749462e5ec990f0c924dc4108d7ea842691da64
+PRODUCTION_REDEPLOY_FROM_MAIN=NO
+```
+
+## Incidentes cerrados del hotfix
+1. Registro 1101 por costo PBKDF2: corregido.
+2. Smoke recargaba antes del timeout de bootstrap: corregido.
+3. `isVisible({timeout})` muestreaba en vez de esperar: reemplazado por `waitFor`.
+4. Propagación regional de assets produjo HTML viejo temporalmente en un POP: gate ampliado para esperar propagación real sin relajar expectativas funcionales.
+5. Intentos fallidos previos hicieron rollback correctamente; el release final concluyó PASS.
 
 ## Riesgos abiertos
+- PBKDF2 a 10.000 iteraciones es una concesión del piloto por CPU; revisar antes de escalar.
 - Workers KV tiene consistencia eventual; colaboración concurrente multiusuario queda fuera de este piloto.
 - Pro no tiene billing integrado todavía.
 - No hay recuperación de contraseña ni verificación de email todavía.
-- `npm ci` mantiene 1 vulnerabilidad moderada preexistente; instalar Playwright temporalmente para CI muestra vulnerabilidades transitorias adicionales que no forman parte del bundle productivo.
+- `npm ci` mantiene 1 vulnerabilidad moderada preexistente.
+
+## Decisiones vigentes
+- Workers-first: Cloudflare se despliega y verifica antes de reconciliar GitHub.
+- No volver a introducir verticales sectoriales ni scraping en el producto activo sin decisión explícita nueva.
+- No documentar valores de secretos ni contraseñas.
+- La demo pública usa únicamente datos sintéticos.
+- El lenguaje comercial principal es `clientes`; el modelo técnico interno puede conservar `contacts/contactos` para evitar migraciones innecesarias.
 
 ## Próximo paso exacto
 ```text
