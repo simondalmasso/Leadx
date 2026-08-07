@@ -326,6 +326,7 @@ export default function App() {
         setSession(current);
         if (current.authenticated) {
           setPlan(current.plan || EMPTY_PLAN);
+          setLoading(false);
           await loadWorkspace();
         }
       } catch {

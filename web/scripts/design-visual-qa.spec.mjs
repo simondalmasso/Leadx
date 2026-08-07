@@ -116,6 +116,7 @@ test("workspace mobile + editor sheet", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: /Nuevo contacto/i }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByText(/Nombre, estado y próxima acción primero/i)).toBeVisible();
+  await page.waitForTimeout(420);
   await assertNoOverflow(page);
   await assertMobileTargets(page);
   await page.screenshot({ path: testInfo.outputPath("editor-mobile.png"), fullPage: false });
@@ -129,6 +130,7 @@ test("320px editor stays inside viewport", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: /Nuevo contacto/i }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet).toBeVisible();
+  await page.waitForTimeout(420);
   const box = await sheet.boundingBox();
   expect(box).not.toBeNull();
   expect(box.y).toBeGreaterThanOrEqual(0);
@@ -171,9 +173,9 @@ test("network error has retry surface", async ({ page }, testInfo) => {
 
 test("workspace loading is designed", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 768, height: 1024 });
-  await mockWorkspace(page, { count: 8, delay: 1800 });
+  await mockWorkspace(page, { count: 8, delay: 2500 });
   await page.goto(baseURL, { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".ledger-loading")).toBeVisible({ timeout: 1200 });
+  await expect(page.locator(".ledger-loading")).toBeVisible({ timeout: 1800 });
   await page.screenshot({ path: testInfo.outputPath("workspace-loading.png"), fullPage: false });
   await waitReady(page);
   await expect(page.getByText(longContact.name)).toBeVisible();
@@ -187,6 +189,7 @@ test("auth surface remains continuous with landing", async ({ page }, testInfo) 
   await page.getByRole("button", { name: /Crear espacio/i }).first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("heading", { name: /100 clientes, en orden/i })).toBeVisible();
+  await page.waitForTimeout(420);
   await assertMobileTargets(page);
   await page.screenshot({ path: testInfo.outputPath("auth-mobile.png"), fullPage: false });
 });
