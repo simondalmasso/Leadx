@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 const baseURL = process.env.LEADX_BASE_URL || "https://leadx.simondalmasso44.workers.dev";
 
-test.setTimeout(120_000);
+test.setTimeout(180_000);
 
 async function openPublicSurface(page, viewport) {
   await page.setViewportSize(viewport);
@@ -15,7 +15,7 @@ async function openPublicSurface(page, viewport) {
   let ready = false;
   let lastTitle = "";
   let lastBody = "";
-  for (let attempt = 1; attempt <= 8; attempt += 1) {
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
     await page.goto(`${baseURL}${separator}ui_ready=${Date.now()}-${attempt}`, { waitUntil: "domcontentloaded" });
     lastTitle = await page.title().catch(() => "");
 
@@ -30,8 +30,8 @@ async function openPublicSurface(page, viewport) {
       }
     } else {
       lastBody = await page.locator("body").innerText().catch(() => "");
-      await page.waitForTimeout(2_000);
     }
+    await page.waitForTimeout(2_000);
   }
 
   if (!ready) {
@@ -40,7 +40,7 @@ async function openPublicSurface(page, viewport) {
     console.log(`PUBLIC_UI_PAGE_ERRORS=${JSON.stringify(pageErrors)}`);
     console.log(`PUBLIC_UI_FAILED_REQUESTS=${JSON.stringify(failedRequests)}`);
   }
-  expect(ready, "new public React surface did not become ready before smoke timeout").toBe(true);
+  expect(ready, "new public React surface did not become ready before regional propagation timeout").toBe(true);
   expect(pageErrors, "browser page errors").toEqual([]);
 }
 
