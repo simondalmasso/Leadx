@@ -1,6 +1,6 @@
 # LeadX — estado operativo
 
-Actualizado: 2026-07-21 · America/Argentina/Cordoba.
+Actualizado: 2026-08-06 · America/Argentina/Cordoba.
 
 Este archivo es el worklog operativo principal. Antes de cualquier release, verificar siempre GitHub, Cloudflare y producción. No usar el historial del chat como fuente de verdad.
 
@@ -16,6 +16,7 @@ KV_TOUCHED_DURING_THIS_WORK=NO
 DEPLOY_EXECUTED=NO
 ROLLBACK_EXECUTED=NO
 MERGE_EXECUTED=NO
+OCI_VCN_LEADX_DELETED=YES
 ```
 
 ## Track P0 — seguridad de ingestión
@@ -124,7 +125,33 @@ OCI_REGISTRY_PUSHED=NO
 OCI_RUNTIME_ACTIVE=NO
 ```
 
-La imagen es compatible con un host OCI genérico. No se eligió ni se activó Oracle o Northflank.
+La imagen es compatible con un host OCI genérico. No está publicada y no existe un runtime externo activo.
+
+## Hito de infraestructura OCI — VCN eliminada
+
+```text
+OCI_OPERATION=DELETE_VCN_AND_ASSOCIATED_NETWORK_RESOURCES
+OCI_OPERATION_AUTHORIZED_BY_OWNER=YES
+OCI_EXECUTION_MODE=MANUAL_OCI_CLOUD_SHELL
+OCI_REGION=sa-saopaulo-1
+OCI_VCN_NAME=vcn-leadx
+OCI_VCN_CIDR=10.0.0.0/16
+OCI_VCN_ID=ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaaliyxxwiamzhdcovprncqfqskau7twcicicfsswhtdrryfcgjbwea
+OCI_VCN_DELETE_RESULT=YES
+OCI_VCN_POST_DELETE_GET=NOT_AUTHORIZED_OR_NOT_FOUND
+OCI_VCN_POST_DELETE_VERIFICATION=PASS
+OCI_VCN_DELETED_AT=2026-08-06T22:09:00-03:00
+OCI_EVIDENCE_SOURCE=OWNER_CLOUD_SHELL_OUTPUT
+OCI_DR_G_RESOURCE_DELETED=NO
+OCI_BUILTIN_DNS_RESOLVER=EXPECTED_DELETED_WITH_VCN_NOT_SEPARATELY_VERIFIED
+OCI_PRODUCTION_DEPLOY_EXECUTED=NO
+CLOUDFLARE_TOUCHED=NO
+LEADX_KV_TOUCHED=NO
+```
+
+El proceso tuvo errores de parsing en los scripts auxiliares después de algunas operaciones, pero la verificación final consultó el OCID exacto y devolvió que el recurso ya no existe. Esa consulta posterior es la evidencia de cierre. No volver a ejecutar el script destructivo contra ese OCID.
+
+La eliminación fue exclusiva de infraestructura Oracle asociada a `vcn-leadx`. No constituye deploy de LeadX, merge de GitHub ni cambio de Cloudflare/KV.
 
 ### Tecnologías externas
 
@@ -156,6 +183,7 @@ OCI_NON_ROOT_USER=PASS
 OCI_DEFAULT_DENY_STARTUP=PASS
 PRODUCTION_ACCESS=NO
 CLOUDFLARE_KV_INGEST_ACCESS=NO
+OCI_VCN_POST_DELETE_VERIFICATION=PASS
 ```
 
 La CI sólo usa fixtures sintéticos. No ejecuta descubrimiento web real, no consulta SINAI, no inicia infraestructura externa y no crea artefactos con leads reales.
@@ -188,12 +216,12 @@ Secuencia obligatoria para un release futuro:
 3. SINAI en vivo no está automatizado: requiere revisión específica de finalidad, autorización, frecuencia, privacidad y condiciones vigentes.
 4. Los candidatos reales y verificaciones privadas deben permanecer fuera de GitHub, CI, Drive y artefactos públicos.
 5. `radar-cron.yml` sigue pausado y no debe ejecutarse manualmente.
-6. Antes de activar el contenedor se debe elegir un host no productivo y definir almacenamiento privado persistente.
+6. `vcn-leadx` fue eliminada; cualquier runtime futuro en Oracle requiere crear una red aislada nueva. La alternativa vigente es utilizar Northflank u otro host OCI no productivo.
 
 ## Próximo paso exacto
 
 ```text
-NEXT_EXACT_ACTION=SELECT_AND_AUTHORIZE_NON_PRODUCTION_OCI_HOST_ORACLE_OR_NORTHFLANK_FOR_PR20_RUNTIME
+NEXT_EXACT_ACTION=CHOOSE_NORTHFLANK_OR_AUTHORIZE_CREATION_OF_A_NEW_ISOLATED_ORACLE_NETWORK_BEFORE_PR20_RUNTIME
 ```
 
-La implementación permitida sin infraestructura quedó completa. Activar Oracle, Northflank u otro host constituye despliegue externo y requiere detenerse según los límites operativos vigentes. No desplegar LeadX, no tocar Cloudflare, no conectar SINAI en vivo y no modificar Repuestos agrícolas.
+La eliminación de `vcn-leadx` quedó cerrada y verificada. No recrear recursos OCI ni activar el laboratorio sin una nueva autorización explícita. No desplegar LeadX, no tocar Cloudflare, no conectar SINAI en vivo y no modificar Repuestos agrícolas.
