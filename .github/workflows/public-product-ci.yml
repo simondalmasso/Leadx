@@ -27,19 +27,19 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22", cache: "npm", cache-dependency-path: "web/package-lock.json" }
       - run: npm --prefix web ci
-      - name: Build with visible diagnostics
+      - name: Build with recoverable diagnostics
         shell: bash
         run: |
           set +e
           npm --prefix web run build 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
           if [ "$code" -ne 0 ]; then
-            {
-              echo '## Build diagnostics'
-              echo '```text'
-              tail -120 build.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+            tail -40 build.log | while IFS= read -r line; do
+              safe="${line//'%'/'%25'}"
+              safe="${safe//$'\r'/'%0D'}"
+              safe="${safe//$'\n'/'%0A'}"
+              echo "::error title=LeadX build::$safe"
+            done
             exit "$code"
           fi
       - run: npm --prefix web test
