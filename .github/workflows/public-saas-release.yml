@@ -146,15 +146,28 @@ jobs:
           echo "NEW_DEPLOYMENT_ID=$NEW_DEPLOYMENT_ID"
           echo "NEW_VERSION_ID=$NEW_VERSION_ID"
 
-          smoke_ok=true
-          curl -fsS "$LEADX_BASE_URL/api/health?release=$GITHUB_SHA" > "$ARTIFACT_DIR/health.json" || smoke_ok=false
-          if $smoke_ok; then jq -e '.status == "ok" and .service == "leadx" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100' "$ARTIFACT_DIR/health.json" >/dev/null || smoke_ok=false; fi
-          curl -fsS "$LEADX_BASE_URL/api/auth/session?release=$GITHUB_SHA" > "$ARTIFACT_DIR/session.json" || smoke_ok=false
-          if $smoke_ok; then jq -e '.authenticated == false and .mode == "preview"' "$ARTIFACT_DIR/session.json" >/dev/null || smoke_ok=false; fi
-          if $smoke_ok; then
-            (cd web && npx playwright test scripts/public-production-smoke.spec.mjs --workers=1) 2>&1 | tee "$ARTIFACT_DIR/browser.log" || smoke_ok=false
-          fi
+          release_ready=false
+          for attempt in $(seq 1 60); do
+            curl -fsS "$LEADX_BASE_URL/api/health?release=$GITHUB_SHA&attempt=$attempt" > "$ARTIFACT_DIR/health.json" || true
+            curl -fsS "$LEADX_BASE_URL/api/auth/session?release=$GITHUB_SHA&attempt=$attempt" > "$ARTIFACT_DIR/session.json" || true
+            if jq -e '.status == "ok" and .service == "leadx" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100' "$ARTIFACT_DIR/health.json" >/dev/null 2>&1 \
+              && jq -e '.authenticated == false and .mode == "preview"' "$ARTIFACT_DIR/session.json" >/dev/null 2>&1; then
+              release_ready=true
+              echo "RUNTIME_PROPAGATION_ATTEMPT=$attempt"
+              break
+            fi
+            sleep 2
+          done
 
+          if ! $release_ready; then
+            echo "RUNTIME_PROPAGATION_READY=NO"
+            rollback
+            exit 1
+          fi
+          echo "RUNTIME_PROPAGATION_READY=YES"
+
+          smoke_ok=true
+          (cd web && npx playwright test scripts/public-production-smoke.spec.mjs --workers=1) 2>&1 | tee "$ARTIFACT_DIR/browser.log" || smoke_ok=false
           if ! $smoke_ok; then
             rollback
             exit 1
@@ -164,8 +177,17 @@ jobs:
           if [ "$LEGACY_KEY_COUNT" -gt 0 ]; then
             npx --yes wrangler@${WRANGLER_VERSION} kv bulk delete "$ARTIFACT_DIR/legacy-keys.json" --binding LEADX_KV --remote --force
           fi
-          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$ARTIFACT_DIR/kv-after.json"
-          REMAINING_LEGACY="$(jq '[.[].name | select(startswith("lx:") | not)] | length' "$ARTIFACT_DIR/kv-after.json")"
+
+          REMAINING_LEGACY=""
+          for attempt in $(seq 1 30); do
+            npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$ARTIFACT_DIR/kv-after.json"
+            REMAINING_LEGACY="$(jq '[.[].name | select(startswith("lx:") | not)] | length' "$ARTIFACT_DIR/kv-after.json")"
+            if [ "$REMAINING_LEGACY" = "0" ]; then
+              echo "KV_PURGE_PROPAGATION_ATTEMPT=$attempt"
+              break
+            fi
+            sleep 2
+          done
           test "$REMAINING_LEGACY" = "0"
 
           curl -fsS "$LEADX_BASE_URL/api/health?post_purge=$GITHUB_SHA" | jq -e '.release == "leadx-public-freemium-v1" and .free_contact_limit == 100' >/dev/null
