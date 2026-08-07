@@ -21,10 +21,11 @@ test("free contact limit is 100 server-side", () => assert.match(worker, /FREE_C
 test("server rejects new contacts after free limit", () => assert.match(worker, /free_limit_reached/));
 test("demo explicitly uses fictitious contacts", () => assert.match(app, /Datos 100% ficticios/));
 test("public marketing says no card and no expiration", () => { assert.match(app, /Sin tarjeta/); assert.match(app, /Sin vencimiento/); });
+test("public marketing speaks about clients", () => { assert.match(app, /Tus clientes/); assert.match(app, /100 clientes/); });
 test("active product has no former vertical terminology", () => {
   for (const token of ["fotomultas", "repuestos_agricolas", "repuestos agrícolas", "radar", "reddit", "scraping"]) assert.equal(active.includes(token), false, `forbidden token remains: ${token}`);
 });
-test("passwords use PBKDF2", () => { assert.match(worker, /PBKDF2/); assert.match(worker, /iterations: 150000/); });
+test("passwords use PBKDF2 within Workers CPU budget", () => { assert.match(worker, /PBKDF2/); assert.match(worker, /iterations: 10000/); });
 test("session cookie is hardened", () => { assert.match(worker, /HttpOnly/); assert.match(worker, /Secure/); assert.match(worker, /SameSite=Lax/); });
 test("API exposes generic contacts routes", () => { assert.match(worker, /\/api\/contacts/); assert.match(worker, /\/api\/auth\/register/); assert.match(worker, /\/api\/auth\/login/); });
 test("legacy auth and ingest API are absent", () => { assert.doesNotMatch(worker, /DASHBOARD_PASSWORD|INGEST_SECRET|\/api\/ingest/); });
