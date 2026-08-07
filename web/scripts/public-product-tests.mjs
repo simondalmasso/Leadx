@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 const runtime = fs.readFileSync(new URL("../../worker/runtime.mjs", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+const wrangler = fs.readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8");
 
 const checks = [
   ["free limit is 100", /FREE_CONTACT_LIMIT = 100/.test(runtime)],
@@ -16,6 +17,7 @@ const checks = [
   ["public preview is explicit", /Preview abierto/.test(app) && /Datos 100% ficticios/.test(app)],
   ["free plan is explicit", /Hasta 100 contactos/.test(app) && /Gratis para siempre hasta 100 contactos/.test(app)],
   ["no old verticals in product app", !/fotomultas|repuestos_agricolas/i.test(app)],
+  ["all API routes run Worker first", /run_worker_first\s*=\s*\[\s*"\/api\/\*"\s*\]/.test(wrangler)],
 ];
 for (const [name, ok] of checks) { assert.equal(ok, true, name); console.log(`PASS ${name}`); }
 console.log(`PUBLIC_PRODUCT_TESTS=${checks.length}/${checks.length}`);
