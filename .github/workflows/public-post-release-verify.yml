@@ -1,0 +1,108 @@
+name: LeadX Public Post-Release Verification
+
+on:
+  push:
+    branches: [feat/public-freemium-v1]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leadx-public-post-release-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: startsWith(github.event.head_commit.message, 'verify(public):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LEADX_BASE_URL: https://leadx.simondalmasso44.workers.dev
+      WRANGLER_VERSION: '4.111.0'
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build exact public assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix web ci
+          npm --prefix web run build
+          npm --prefix web test
+          npm --prefix web run typecheck
+          EXPECTED_JS_ASSET="$(grep -oE '/assets/[^\"]+\.js' web/dist/index.html | head -n1)"
+          test -n "$EXPECTED_JS_ASSET"
+          echo "EXPECTED_JS_ASSET=$EXPECTED_JS_ASSET" >> "$GITHUB_ENV"
+
+      - name: Verify active Cloudflare deployment and legacy KV purge
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          mkdir -p artifacts/post-release
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/leadx/deployments"
+          curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "$endpoint" > artifacts/post-release/deployments.json
+          jq -e '
+            def deployments:
+              if (.result | type) == "array" then .result
+              elif (.result | type) == "object" and (.result.deployments | type) == "array" then .result.deployments
+              else error("Unexpected Cloudflare deployments response schema") end;
+            .success == true and
+            (deployments | length) > 0 and
+            (deployments[0].versions | length) == 1 and
+            deployments[0].versions[0].percentage == 100
+          ' artifacts/post-release/deployments.json >/dev/null
+          DEPLOYMENT_ID="$(jq -r 'if (.result|type)=="array" then .result[0].id else .result.deployments[0].id end' artifacts/post-release/deployments.json)"
+          VERSION_ID="$(jq -r 'if (.result|type)=="array" then .result[0].versions[] else .result.deployments[0].versions[] end | select(.percentage==100) | .version_id' artifacts/post-release/deployments.json | head -n1)"
+          test -n "$DEPLOYMENT_ID"
+          test -n "$VERSION_ID"
+          echo "ACTIVE_DEPLOYMENT_ID=$DEPLOYMENT_ID"
+          echo "ACTIVE_VERSION_ID=$VERSION_ID"
+          echo "ACTIVE_TRAFFIC=100"
+
+          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > artifacts/post-release/kv.json
+          LEGACY_COUNT="$(jq '[.[].name | select(startswith("lx:") | not)] | length' artifacts/post-release/kv.json)"
+          test "$LEGACY_COUNT" = "0"
+          echo "REMAINING_LEGACY_KV_KEYS=0"
+
+      - name: Verify public HTTP surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$LEADX_BASE_URL/api/health?verify=$GITHUB_SHA" -o artifacts/post-release/health.json
+          jq -e '.status == "ok" and .service == "leadx" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100' artifacts/post-release/health.json >/dev/null
+          curl -fsS "$LEADX_BASE_URL/api/auth/session?verify=$GITHUB_SHA" -o artifacts/post-release/session.json
+          jq -e '.authenticated == false and .mode == "preview"' artifacts/post-release/session.json >/dev/null
+          curl -fsS "$LEADX_BASE_URL/?verify=$GITHUB_SHA" -o artifacts/post-release/index.html
+          grep -Fq "$EXPECTED_JS_ASSET" artifacts/post-release/index.html
+          curl -fsS "$LEADX_BASE_URL$EXPECTED_JS_ASSET?verify=$GITHUB_SHA" -o /dev/null
+          echo "HTTP_SURFACES=PASS"
+
+      - name: Verify desktop and mobile browser surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix web install --no-save --package-lock=false @playwright/test@1.51.1
+          cd web
+          npx playwright install --with-deps chromium
+          npx playwright test scripts/public-production-smoke.spec.mjs --workers=1 2>&1 | tee ../artifacts/post-release/browser.log
+          grep -q '2 passed' ../artifacts/post-release/browser.log
+          echo "BROWSER_DESKTOP_MOBILE=PASS"
+
+      - name: Upload post-release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leadx-public-post-release-${{ github.sha }}
+          path: artifacts/post-release
+          if-no-files-found: warn
+          retention-days: 30
