@@ -26,10 +26,10 @@ cloudflare_deployments(){
   curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
     "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/deployments" \
     > "$1"
-  jq -e '.success==true and (.result|length)>0' "$1" >/dev/null
+  jq -e '.success==true and (.result.deployments|type=="array") and (.result.deployments|length)>0' "$1" >/dev/null
 }
-active_version(){ jq -r '.result[0].versions[]? | select(.percentage==100) | .version_id' "$1" | head -1; }
-active_deployment(){ jq -r '.result[0].id // empty' "$1"; }
+active_version(){ jq -r '.result.deployments[0].versions[]? | select(.percentage==100) | .version_id' "$1" | head -1; }
+active_deployment(){ jq -r '.result.deployments[0].id // empty' "$1"; }
 
 rollback(){
   [[ -n "${PREVIOUS_VERSION_ID:-}" ]] || { log "Rollback unavailable: previous version missing."; return 1; }
@@ -114,7 +114,7 @@ NEW_DEPLOYMENT_ID=""
 for _ in $(seq 1 90); do
   cloudflare_deployments "$ARTIFACT_DIR/current-deployments.json"
   if [[ "$(active_version "$ARTIFACT_DIR/current-deployments.json")" == "$NEW_VERSION_ID" ]] && \
-     [[ "$(jq -r '.result[0].versions|length' "$ARTIFACT_DIR/current-deployments.json")" == "1" ]]; then
+     [[ "$(jq -r '.result.deployments[0].versions|length' "$ARTIFACT_DIR/current-deployments.json")" == "1" ]]; then
     NEW_DEPLOYMENT_ID="$(active_deployment "$ARTIFACT_DIR/current-deployments.json")"
     break
   fi
