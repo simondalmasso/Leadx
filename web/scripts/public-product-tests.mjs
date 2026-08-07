@@ -7,10 +7,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const app = read("web/src/App.tsx");
+const styles = read("web/src/styles.css");
 const api = read("web/src/lib/api.ts");
 const demo = read("web/src/demo-leads.ts");
 const worker = read("worker/runtime.mjs");
 const wrangler = read("wrangler.toml");
+const wordmark = read("web/public/leadx-wordmark.svg");
 const active = `${app}\n${demo}\n${worker}\n${wrangler}`.toLowerCase();
 
 const tests = [];
@@ -19,7 +21,7 @@ function test(name, fn) { tests.push([name, fn]); }
 test("free contact limit is 100 in UI", () => assert.match(app, /FREE_CONTACT_LIMIT = 100/));
 test("free contact limit is 100 server-side", () => assert.match(worker, /FREE_CONTACT_LIMIT = 100/));
 test("server rejects new contacts after free limit", () => assert.match(worker, /free_limit_reached/));
-test("demo explicitly uses fictitious contacts", () => assert.match(app, /Datos 100% ficticios/));
+test("demo explicitly uses fictitious contacts", () => assert.match(app, /demo ficticia|datos ficticios/i));
 test("public marketing says no card and no expiration", () => { assert.match(app, /Sin tarjeta/); assert.match(app, /Sin vencimiento/); });
 test("public marketing speaks about clients", () => { assert.match(app, /Tus clientes/); assert.match(app, /100 clientes/); });
 test("active product has no former vertical terminology", () => {
@@ -37,6 +39,16 @@ test("public bootstrap cannot wait forever for session", () => {
   assert.match(api, /controller\.abort\("request_timeout"\)/);
   assert.match(api, /session: \(\) => request<SessionInfo>\([^\n]+SESSION_TIMEOUT_MS\)/);
 });
+test("Signal Desk v2 exposes semantic design tokens", () => {
+  for (const token of ["--bg-canvas", "--bg-elevated", "--bg-inverse", "--text-primary", "--text-secondary", "--border-subtle", "--border-strong", "--signal-primary", "--success", "--warning", "--danger", "--focus", "--selection"]) assert.match(styles, new RegExp(token));
+});
+test("official LeadX wordmark is used by runtime", () => { assert.match(app, /leadx-wordmark\.svg/); assert.match(wordmark, /LeadX/); });
+test("critical product states are intentionally rendered", () => {
+  for (const text of ["Mesa vacía", "Sin coincidencias", "Conexión interrumpida", "Plan Free completo", "Guardando", "Eliminar este contacto", "Registramos tu interés en LeadX Pro"]) assert.match(app, new RegExp(text));
+});
+test("dialogs are explicit accessible surfaces", () => { assert.match(app, /role="dialog"/); assert.match(app, /aria-modal="true"/); assert.match(styles, /:focus-visible/); });
+test("public product avoids decorative AI icon language", () => assert.doesNotMatch(app, /Sparkles/));
+test("motion respects reduced-motion preference", () => assert.match(styles, /prefers-reduced-motion/));
 
 let passed = 0;
 for (const [name, fn] of tests) {
