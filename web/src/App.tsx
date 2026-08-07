@@ -132,8 +132,8 @@ function AuthDialog({ mode, onClose, onSuccess }: { mode: AuthMode; onClose: () 
       <form className="auth-card" onSubmit={submit}>
         <div className="auth-card__top"><div className="brand-mark">L<span>X</span></div><button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button></div>
         <span className="eyebrow">{authMode === "register" ? "Plan Free" : "Tu espacio"}</span>
-        <h2>{authMode === "register" ? "Empezá con 100 contactos gratis." : "Volvé a tu LeadX."}</h2>
-        <p>{authMode === "register" ? "Sin tarjeta, sin vencimiento. Tus contactos quedan privados en tu espacio." : "Ingresá con el email y contraseña de tu espacio."}</p>
+        <h2>{authMode === "register" ? "Empezá con tus primeros 100 clientes gratis." : "Volvé a tu LeadX."}</h2>
+        <p>{authMode === "register" ? "Sin tarjeta, sin vencimiento. Tus clientes quedan privados en tu espacio." : "Ingresá con el email y contraseña de tu espacio."}</p>
         <label><span>Email</span><input autoFocus type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vos@empresa.com" /></label>
         <label><span>Contraseña</span><input type="password" required minLength={10} maxLength={128} autoComplete={authMode === "register" ? "new-password" : "current-password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 10 caracteres" /></label>
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -250,7 +250,7 @@ export default function App() {
     setSession(next);
     setPlan(next.plan || EMPTY_PLAN);
     await loadWorkspace();
-    setNotice("Tu espacio está listo. El plan Free incluye hasta 100 contactos.");
+    setNotice("Tu espacio está listo. El plan Free incluye hasta 100 clientes.");
     window.setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 80);
   };
 
@@ -319,13 +319,13 @@ export default function App() {
         <section className="hero">
           <div className="hero__copy">
             <span className="eyebrow">CRM liviano para vender mejor</span>
-            <h1>Tus contactos.<br /><em>En orden.</em></h1>
+            <h1>Tus clientes.<br /><em>En orden.</em></h1>
             <p>LeadX reúne lo que importa para avanzar una relación comercial: quién es, en qué estado está y qué tiene que pasar después.</p>
             <div className="hero__actions"><button className="btn btn--signal btn--large" onClick={() => setAuthOpen("register")}>Crear espacio gratis <ArrowRight size={18} /></button><a className="btn btn--quiet btn--large" href="#demo">Ver demo</a></div>
-            <div className="hero__proof"><span><Check size={15} /> Gratis hasta 100 contactos</span><span><Check size={15} /> Sin tarjeta</span><span><Check size={15} /> Sin vencimiento</span></div>
+            <div className="hero__proof"><span><Check size={15} /> Gratis hasta 100 clientes</span><span><Check size={15} /> Sin tarjeta</span><span><Check size={15} /> Sin vencimiento</span></div>
           </div>
           <div className="hero__aside" aria-hidden="true">
-            <div className="hero-number">100</div><span>contactos gratis<br />para empezar</span>
+            <div className="hero-number">100</div><span>clientes gratis<br />para empezar</span>
           </div>
         </section>
 
@@ -351,11 +351,11 @@ export default function App() {
         </section>
 
         <section className="pricing" id="precios">
-          <div className="section-heading"><span className="eyebrow">Precios</span><h2>Gratis hasta que realmente crezcas.</h2><p>El plan Free no vence. Si llegás al límite, tus contactos quedan intactos: simplemente no agregás nuevos hasta pasar a Pro.</p></div>
+          <div className="section-heading"><span className="eyebrow">Precios</span><h2>Gratis hasta que realmente crezcas.</h2><p>El plan Free no vence. Si llegás al límite, tus clientes quedan intactos: simplemente no agregás nuevos hasta pasar a Pro.</p></div>
           <div className="pricing-grid">
             <article className="plan-card plan-card--free">
               <div><span className="plan-label">Free</span><strong className="plan-price">$0</strong><small>para siempre</small></div>
-              <ul><li><Check size={16} /> Hasta 100 contactos</li><li><Check size={16} /> Estados y próxima acción</li><li><Check size={16} /> Notas, búsqueda y filtros</li><li><Check size={16} /> Exportación CSV</li><li><Check size={16} /> Sin tarjeta ni vencimiento</li></ul>
+              <ul><li><Check size={16} /> Hasta 100 clientes</li><li><Check size={16} /> Estados y próxima acción</li><li><Check size={16} /> Notas, búsqueda y filtros</li><li><Check size={16} /> Exportación CSV</li><li><Check size={16} /> Sin tarjeta ni vencimiento</li></ul>
               <button className="btn btn--signal btn--wide" onClick={() => setAuthOpen("register")}>Empezar gratis</button>
             </article>
             <article className="plan-card plan-card--pro">
@@ -375,7 +375,7 @@ export default function App() {
         {plan.plan === "free" && <button className="btn btn--ink" onClick={() => void wantPro()}>Avisame por Pro <ArrowRight size={16} /></button>}
       </section>}
 
-      <footer><a className="wordmark" href="#top">Lead<span>X</span></a><p>CRM liviano para equipos comerciales. Piloto público 2026.</p><span>Free hasta 100 contactos.</span></footer>
+      <footer><a className="wordmark" href="#top">Lead<span>X</span></a><p>CRM liviano para equipos comerciales. Piloto público 2026.</p><span>Free hasta 100 clientes.</span></footer>
 
       {authOpen && <AuthDialog mode={authOpen} onClose={() => setAuthOpen(null)} onSuccess={(next) => void authSuccess(next)} />}
       {(editorOpen || selected) && session.authenticated && <ContactEditor contact={selected} onClose={() => { setEditorOpen(false); setSelected(null); }} onSave={saveContact} onDelete={selected ? deleteContact : undefined} />}
