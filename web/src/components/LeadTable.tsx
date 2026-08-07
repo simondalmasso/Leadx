@@ -16,7 +16,7 @@ export function LeadTable({ leads, selectedId, onSelect, onActivity }: Props) {
   const select = (lead: Lead) => { onActivity?.(); onSelect(lead); };
   const isAgro = leads.some((lead) => lead.vertical === "repuestos_agricolas");
   return (
-    <section className="table-shell" aria-label="Tabla de leads">
+    <section className={`table-shell ${isAgro ? "table-shell--agro" : ""}`} aria-label="Tabla de leads">
       <table className="lead-table">
         <thead><tr><th>Lead</th><th>Provincia</th><th>Teléfono</th>{isAgro ? <><th>Temperatura</th><th>Próxima acción</th></> : <th>Canal</th>}<th>Potencial</th><th>Creado</th></tr></thead>
         <tbody>{leads.map((lead) => (
