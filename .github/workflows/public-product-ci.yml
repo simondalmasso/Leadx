@@ -1,0 +1,39 @@
+name: LeadX Public Product CI
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - "worker/**"
+      - "worker.js"
+      - "wrangler.toml"
+      - "scripts/deploy-workers-first.sh"
+      - ".github/workflows/public-product-ci.yml"
+  push:
+    branches:
+      - "release/leadx-public-v1"
+    paths:
+      - "web/**"
+      - "worker/**"
+      - "worker.js"
+      - "wrangler.toml"
+      - "scripts/deploy-workers-first.sh"
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: "npm", cache-dependency-path: "web/package-lock.json" }
+      - run: npm --prefix web ci
+      - run: npm --prefix web run build
+      - run: npm --prefix web test
+      - run: npm --prefix web run typecheck
+      - name: Assert legacy scraping machinery absent
+        run: |
+          test ! -e scripts/radar
+          test ! -e .github/workflows/radar-cron.yml
+          test ! -e data
+          test ! -e download
+          test ! -e upload
+          ! grep -RniE 'fotomultas|repuestos_agricolas' web/src worker --exclude='*.map'
