@@ -9,14 +9,13 @@ PRODUCT_DIRECTION=PUBLIC_GENERIC_CRM
 DESIGN_SYSTEM=SIGNAL_DESK
 DEFAULT_BRANCH=main
 PRE_RELEASE_MAIN_SHA=91672001c893815a1f31f9cfdd11b31a18a6968a
-WORKING_BRANCH=feat/public-freemium-v1
 PR=23
-PR_STATE=OPEN_RELEASE_VALIDATED_PENDING_MERGE
+PR_STATE=MERGED
+PR_MERGE_SHA=3adde0dbeff46e6d012e848266113be22bd5def1
 PRODUCTION_URL=https://leadx.simondalmasso44.workers.dev/
 PRODUCTION_RELEASE=leadx-public-freemium-v1
 PRODUCTION_DEPLOY=PASS
 PRODUCTION_DEPLOYED_GIT_SHA=27756c854a2719af42c683fff95faf66a70e25ab
-PRODUCTION_RUNTIME_CODE_PARENT=bbca1657f81bb7412e801f6dc9ad335d5821b715
 ACTIVE_DEPLOYMENT_ID=2c092d39-38c7-404a-93d2-44979e88e2c6
 ACTIVE_VERSION_ID=deff1f6a-4664-4c2e-a595-91ba91aeae52
 ACTIVE_TRAFFIC=100
@@ -28,10 +27,12 @@ LEGACY_KV_KEYS_PURGED=6
 REMAINING_LEGACY_KV_KEYS=0
 SCRAPING_DISCOVERY=REMOVED_FROM_ACTIVE_TREE
 OLD_VERTICALS=REMOVED_FROM_ACTIVE_PRODUCT
+GITHUB_RECONCILIATION=PASS
+REDEPLOY_AFTER_MERGE=NO
 ```
 
 ## Producto público
-LeadX es ahora un CRM web genérico y liviano para ordenar contactos comerciales y mantener visible la próxima acción.
+LeadX es un CRM web genérico y liviano para ordenar contactos comerciales y mantener visible la próxima acción.
 
 Modelo comercial vigente:
 - demo pública abierta con datos 100% ficticios;
@@ -64,18 +65,21 @@ PUBLIC_BROWSER
 - límite Free validado en backend.
 - bootstrap público no puede quedar bloqueado indefinidamente: sesión aborta a los 3 s y degrada a preview; otras llamadas API tienen timeout finito.
 
-## Validación pre-release
+## Validación pre-release y PR
 ```text
 CI_RUN=31190348835
 CI_JOB=92905314348
 CANDIDATE_HEAD=bbca1657f81bb7412e801f6dc9ad335d5821b715
-BUILD=PASS
 PUBLIC_PRODUCT_TESTS=13/13
+BUILD=PASS
 TYPECHECK=PASS
 WORKER_SYNTAX=PASS
 LEGACY_ACTIVE_RUNTIME=ABSENT
 WRANGLER_DRY_RUN=PASS
 TARGETED_BOOTSTRAP_HANG_TEST=PASS
+FINAL_PR_CI_RUN=31191155803
+FINAL_PR_HEAD=c004de29711f5725e6dd2726e9b8629dd736a2dc
+FINAL_PR_CI=success
 ```
 
 ## Release Workers-first
@@ -97,7 +101,7 @@ WORKFLOW_FAILURE_SCOPE=single immediate HTTP assertion after successful purge
 ROLLBACK_AFTER_PURGE=NO
 ```
 
-El workflow de release terminó rojo porque el primer assertion HTTP post-purge devolvió exit 1 inmediatamente después del purge. No se ejecutó rollback en ese tramo. Producción permaneció en el nuevo Worker y fue verificada después de forma independiente.
+El workflow de release terminó rojo por una aserción HTTP inmediata después del purge. No hubo rollback en ese tramo. El Worker nuevo permaneció activo y se verificó luego de forma independiente.
 
 ## Verificación productiva independiente post-release
 ```text
@@ -123,7 +127,7 @@ POST_RELEASE_ARTIFACT_DIGEST=sha256:1b47e725b4f55fdb11ca8ae6cbacfb6aa34ac2c6a5cd
 2. Race de propagación de runtime: corregido con readiness polling; rollback previo exitoso.
 3. Race de assets estáticos: corregido con fingerprint gate; rollback previo exitoso.
 4. Bootstrap React bloqueado por session fetch sin timeout: reproducido, corregido y probado con sesión deliberadamente colgada.
-5. Assertion inmediato post-purge falló, pero el estado productivo posterior fue verificado por workflow read-only completo: cerrado como fallo del gate temporal, no del producto.
+5. Aserción inmediata post-purge falló, pero el estado productivo posterior fue verificado por workflow read-only completo: fallo del gate temporal, no del producto.
 
 ## Riesgos abiertos
 - Workers KV tiene consistencia eventual; colaboración concurrente multiusuario queda fuera de este piloto.
@@ -133,5 +137,5 @@ POST_RELEASE_ARTIFACT_DIGEST=sha256:1b47e725b4f55fdb11ca8ae6cbacfb6aa34ac2c6a5cd
 
 ## Próximo paso exacto
 ```text
-NEXT_EXACT_ACTION=MERGE_PR23_TO_MAIN_WITHOUT_REDEPLOY_THEN_UPDATE_DRIVE_AND_CLOSE_SUPERSEDED_PRS
+NEXT_EXACT_ACTION=OPERATE_PUBLIC_PILOT_AND_COLLECT_COMMERCIAL_FEEDBACK
 ```
