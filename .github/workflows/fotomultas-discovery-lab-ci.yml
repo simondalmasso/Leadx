@@ -78,9 +78,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          source = Path('labs/fotomultas_discovery/fixtures/verifications.synthetic.json')
+          target = Path('/tmp/verifications.synthetic.current.json')
+          payload = json.loads(source.read_text(encoding='utf-8'))
+          checked_at = datetime.now(timezone.utc).isoformat()
+          for verification in payload.get('verifications', []):
+              verification['checked_at'] = checked_at
+          target.write_text(json.dumps(payload), encoding='utf-8')
+          PY
           python -m labs.fotomultas_discovery.cli \
             --candidates labs/fotomultas_discovery/fixtures/candidates.synthetic.json \
-            --verifications labs/fotomultas_discovery/fixtures/verifications.synthetic.json \
+            --verifications /tmp/verifications.synthetic.current.json \
             --output /tmp/fotomultas-decisions.json
           python - <<'PY'
           import json
