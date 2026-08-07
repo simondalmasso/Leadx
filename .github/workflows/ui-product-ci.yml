@@ -22,7 +22,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,10 +62,43 @@ jobs:
       - name: Wrangler dry-run
         run: npx --yes wrangler@4.111.0 deploy --dry-run --outdir /tmp/leadx-public-bundle
 
-      - name: Upload static preview
+      - name: Install visual QA browser tooling
+        run: |
+          npm --prefix web install --no-save --package-lock=false @playwright/test@1.51.1
+          cd web
+          npx playwright install --with-deps chromium
+
+      - name: Start local production preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix web run preview -- --host 127.0.0.1 --port 4173 > /tmp/leadx-preview.log 2>&1 &
+          echo $! > /tmp/leadx-preview.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+              echo "LOCAL_PREVIEW_READY_ATTEMPT=$attempt"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/leadx-preview.log
+          exit 1
+
+      - name: Multi-breakpoint visual QA
+        env:
+          LEADX_QA_BASE_URL: http://127.0.0.1:4173
+        run: |
+          cd web
+          npx playwright test scripts/design-visual-qa.spec.mjs --workers=1
+
+      - name: Upload static preview and visual evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: leadx-public-preview-${{ github.event.pull_request.head.sha }}
-          path: web/dist
-          if-no-files-found: error
+          path: |
+            web/dist
+            web/test-results
+            /tmp/leadx-preview.log
+          if-no-files-found: warn
           retention-days: 3
