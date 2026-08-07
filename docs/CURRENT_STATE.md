@@ -1,143 +1,229 @@
 # LeadX — estado operativo
 
-Actualizado: 2026-08-07 · America/Argentina/Cordoba.
+Actualizado: 2026-08-07 14:11 · America/Argentina/Cordoba.
 
 ## Estado canónico
 ```text
 PROJECT=LeadX
 PRODUCT_DIRECTION=PUBLIC_GENERIC_CRM
-DESIGN_SYSTEM=SIGNAL_DESK
+DESIGN_SYSTEM=SIGNAL_DESK_V2_CANDIDATE
 DEFAULT_BRANCH=main
-PRE_RELEASE_MAIN_SHA=91672001c893815a1f31f9cfdd11b31a18a6968a
-PR=23
-PR_STATE=MERGED
-PR_MERGE_SHA=3adde0dbeff46e6d012e848266113be22bd5def1
-OPEN_PRS=0
-SUPERSEDED_PRS_CLOSED=1,14,19,20,22
+MAIN_SHA=01dc33f4b39e9352e920941685961e30ffc29033
 PRODUCTION_URL=https://leadx.simondalmasso44.workers.dev/
 PRODUCTION_RELEASE=leadx-public-freemium-v1
-PRODUCTION_DEPLOY=PASS
-PRODUCTION_DEPLOYED_GIT_SHA=27756c854a2719af42c683fff95faf66a70e25ab
-ACTIVE_DEPLOYMENT_ID=2c092d39-38c7-404a-93d2-44979e88e2c6
-ACTIVE_VERSION_ID=deff1f6a-4664-4c2e-a595-91ba91aeae52
+PRODUCTION_DEPLOYED_GIT_SHA=8bc76173e4d90e60445f99ec56c52caabae9be6e
+ACTIVE_DEPLOYMENT_ID=1e076a5e-b3b9-4c3f-a087-09100bdb51f3
+ACTIVE_VERSION_ID=e06c6606-6fdc-4363-a9a4-7915ffc7a787
 ACTIVE_TRAFFIC=100
-ACTIVE_JS_ASSET=/assets/index-C_HJKQA3.js
-FREE_CONTACT_LIMIT=100
+ACTIVE_JS_ASSET=/assets/index-TYa2Tc_i.js
+FREE_CUSTOMER_LIMIT=100
 PUBLIC_SESSION_MODE=preview
 DEMO=PUBLIC_SYNTHETIC_ONLY
-LEGACY_KV_KEYS_PURGED=6
 REMAINING_LEGACY_KV_KEYS=0
 SCRAPING_DISCOVERY=REMOVED_FROM_ACTIVE_TREE
 OLD_VERTICALS=REMOVED_FROM_ACTIVE_PRODUCT
-GITHUB_RECONCILIATION=PASS
-REDEPLOY_AFTER_MERGE=NO
+WORKERS_FIRST=YES
+PRODUCTION_CHANGED_BY_DESIGN_V2=NO
+DESIGN_V2_DEPLOY_EXECUTED=NO
+DESIGN_V2_MERGE_EXECUTED=NO
 ```
 
-## Producto público
-LeadX es un CRM web genérico y liviano para ordenar contactos comerciales y mantener visible la próxima acción.
+## Producción vigente
+Producción permanece en el release público ya verificado. Este trabajo de diseño no tocó Cloudflare Worker, KV, datos ni tráfico productivo.
 
-Modelo comercial vigente:
-- demo pública abierta con datos 100% ficticios;
-- registro/login por email y contraseña;
-- workspace privado por usuario;
-- CRUD de contactos, estados, próxima acción, notas, búsqueda, filtros y exportación CSV;
-- plan Free permanente hasta 100 contactos;
-- sin tarjeta y sin vencimiento;
-- al alcanzar 100 contactos no se borra información: sólo se bloquea crear nuevos;
-- Pro está presentado como siguiente capa comercial, sin billing integrado todavía.
-
-Las verticales Fotomultas/Repuestos agrícolas, los datasets anteriores, scraping/discovery/radar, importadores y endpoints legacy fueron retirados del árbol activo. La historia Git no se reescribió.
-
-## Arquitectura activa
+Estado productivo conocido:
 ```text
-PUBLIC_BROWSER
-  -> React/Vite landing + demo ficticia
-  -> registro/login
-  -> workspace privado
-  -> /api/* Cloudflare Worker
-  -> Workers KV aislado por user-id
+RELEASE_RUN=31196841214
+RELEASE_JOB=92927017652
+RELEASE_CONCLUSION=success
+PRODUCTION_RELEASE=PASS
+HEALTH=PASS
+DESKTOP_BROWSER_SMOKE=PASS
+MOBILE_BROWSER_SMOKE=PASS
+OWNER_ACCOUNT_REGISTRATION=PASS
+OWNER_LOGIN=PASS
+OWNER_SESSION=PASS
+OWNER_LOGOUT=PASS
+PUBLIC_HERO=Tus clientes. En orden.
+FREE_COPY=Gratis hasta 100 clientes
 ```
 
-## Seguridad activa
-- PBKDF2-SHA256, 150.000 iteraciones y salt aleatorio.
-- sesión aleatoria 256-bit almacenada por hash en KV con TTL 30 días.
-- cookie HttpOnly + Secure + SameSite=Lax.
-- rate-limit binding para auth/escrituras.
-- CSP `frame-ancestors 'none'`.
-- límite Free validado en backend.
-- bootstrap público no puede quedar bloqueado indefinidamente: sesión aborta a los 3 s y degrada a preview; otras llamadas API tienen timeout finito.
-
-## Validación pre-release y PR
+## LeadX Signal Desk V2 — candidato no productivo
 ```text
-CI_RUN=31190348835
-CI_JOB=92905314348
-CANDIDATE_HEAD=bbca1657f81bb7412e801f6dc9ad335d5821b715
-PUBLIC_PRODUCT_TESTS=13/13
+DESIGN_ORDER=HOVS_CREATIVE_DIRECTION_PASS_V2
+DESIGN_NORTH_STAR=CONTACT_SIGNAL_NEXT_ACTION
+PR=25
+PR_STATE=DRAFT_OPEN_NO_DEPLOY
+PR_BRANCH=agent/hovs-creative-direction-v2-candidate
+PR_BASE=main@01dc33f4b39e9352e920941685961e30ffc29033
+INITIAL_DESIGN_SHA=a2660c24af2605b77d015ab6905b490040e67d2e
+QA_CORRECTION_SHA=ba3c0e61d60f5479c108d1601ab98eb2d077e1e0
+FINAL_VALIDATED_SOURCE_SHA=d3299e041e81235d1134f437a62e41201969ad01
+QA_EVIDENCE_DOC_COMMIT=9cc3bf53933d0d61f3002de5ebb03e1c8bf4d53a
+PRODUCTION_DEPLOY_EXECUTED=NO
+PRODUCTION_CHANGED=NO
+BACKEND_CHANGED=NO
+API_CHANGED=NO
+KV_CHANGED=NO
+AUTH_BEHAVIOR_CHANGED=NO
+NEW_RUNTIME_DEPENDENCY=NO
+REAL_CONTACT_DATA_IN_QA=NO
+```
+
+### Concepto
+LeadX se diseñó como una **mesa editorial de señales comerciales**, no como un dashboard SaaS genérico.
+
+```text
+CONTACT → SIGNAL → NEXT ACTION
+```
+
+La jerarquía del workspace es:
+```text
+CONTEXT
+→ METRICS
+→ SEARCH / FILTER
+→ CONTACT
+→ STATUS
+→ NEXT ACTION
+→ SECONDARY DATA
+```
+
+`Próxima acción` tiene prioridad sobre metadata histórica. La landing, demo, workspace, ledger, auth, editor, pricing, estados y responsive usan el mismo sistema visual.
+
+### Sistema entregado
+- paleta Signal Desk evolucionada a tokens semánticos completos;
+- vermellón reservado para señal/acción, no decoración masiva;
+- grotesca local/system trabajada por escala, peso, tracking, leading y measure; sin fuente remota;
+- wordmark SVG oficial integrado como firma canónica;
+- spacing 4/8/12/16/24/32/48/64/96/128;
+- estructura por whitespace, rules y tipografía antes que cards;
+- radius restringido a 2px/4px;
+- motion 140/210/340ms con `prefers-reduced-motion`;
+- desktop como ledger editorial;
+- mobile recompuesto como registros verticales y sheets, no desktop encogido;
+- Free presentado como producto real; Pro como próxima capa sin checkout ficticio.
+
+## Estados diseñados
+```text
+BOOT=IMPLEMENTED
+LOADING=IMPLEMENTED
+EMPTY_WORKSPACE=IMPLEMENTED
+EMPTY_SEARCH=IMPLEMENTED
+NETWORK_ERROR=IMPLEMENTED_WITH_RETRY
+FORM_ERROR=IMPLEMENTED
+SAVING=IMPLEMENTED
+SUCCESS_NOTICE=IMPLEMENTED
+FREE_LIMIT_REACHED=IMPLEMENTED
+DISABLED=IMPLEMENTED
+AUTH_FAILURE=IMPLEMENTED
+DELETE_CONFIRMATION=IMPLEMENTED_CUSTOM_NO_BROWSER_CONFIRM
+PRO_INTEREST_SUCCESS=IMPLEMENTED
+```
+
+## Accesibilidad y calidad
+- focus-visible inequívoco;
+- dialogs con semántica y Escape;
+- labels reales;
+- status usa color + texto;
+- touch targets móviles >=44px verificados;
+- reduced motion;
+- horizontal overflow no detectado en gate final;
+- sin iconografía AI decorativa;
+- `lucide-react` sigue siendo la única librería de iconos.
+
+## QA visual — ciclo real
+Primer gate:
+```text
+RUN=31199803262
+JOB=92936793941
 BUILD=PASS
+PUBLIC_PRODUCT_TESTS=20/20
 TYPECHECK=PASS
 WORKER_SYNTAX=PASS
 LEGACY_ACTIVE_RUNTIME=ABSENT
 WRANGLER_DRY_RUN=PASS
-TARGETED_BOOTSTRAP_HANG_TEST=PASS
-FINAL_PR_CI_RUN=31191155803
-FINAL_PR_HEAD=c004de29711f5725e6dd2726e9b8629dd736a2dc
-FINAL_PR_CI=success
+VISUAL_QA=11/14_FAIL_BLOCKED
 ```
 
-## Release Workers-first
+Hallazgos detectados antes de promoción:
+1. botón cerrar podía comprimirse a 35px en mobile;
+2. el loading del workspace no llegaba a renderizar porque el boot global esperaba el fetch de contactos;
+3. la medición del sheet 320px ocurría durante su transición de entrada.
+
+Correcciones aplicadas sin relajar criterios:
+- icon button fijo a 44×44;
+- workspace loading visible después de resolver sesión autenticada;
+- medición de geometría/touch targets después de asentar la transición.
+
+Gate final:
 ```text
-RELEASE_RUN=31190568927
-RELEASE_JOB=92906030054
-DEPLOY_SOURCE_SHA=27756c854a2719af42c683fff95faf66a70e25ab
-PREVIOUS_VERSION_ID=8194e500-d692-40ef-acb6-cbfdda9e9b4e
-NEW_DEPLOYMENT_ID=2c092d39-38c7-404a-93d2-44979e88e2c6
-NEW_VERSION_ID=deff1f6a-4664-4c2e-a595-91ba91aeae52
-RUNTIME_PROPAGATION_READY=PASS
-ASSET_PROPAGATION_READY=PASS
-PRE_PURGE_BROWSER_DESKTOP_MOBILE=2/2_PASS
-LEGACY_KV_KEYS_BEFORE=6
-LEGACY_KV_KEYS_PURGED=6
-KV_AFTER=0
-WORKFLOW_CONCLUSION=failure
-WORKFLOW_FAILURE_SCOPE=single immediate HTTP assertion after successful purge
-ROLLBACK_AFTER_PURGE=NO
+FINAL_QA_RUN=31200535102
+FINAL_QA_JOB=92939204758
+FINAL_QA_SOURCE=d3299e041e81235d1134f437a62e41201969ad01
+FINAL_QA_CONCLUSION=success
+BUILD=PASS
+PUBLIC_PRODUCT_TESTS=PASS
+TYPECHECK=PASS
+WORKER_SYNTAX=PASS
+LEGACY_ACTIVE_RUNTIME=ABSENT
+WRANGLER_DRY_RUN=PASS
+LOCAL_PRODUCTION_PREVIEW=PASS
+MULTI_BREAKPOINT_VISUAL_QA=PASS
+ARTIFACT_ID=9002729241
+ARTIFACT_DIGEST=sha256:51cd1a64bedc485517b11a82e75d24faefb3aafffcc6418f88a30c0176f53027
+FINAL_VISUAL_QA_MANUAL_REVIEW=PASS
 ```
 
-El workflow de release terminó rojo por una aserción HTTP inmediata después del purge. No hubo rollback en ese tramo. El Worker nuevo permaneció activo y se verificó luego de forma independiente.
-
-## Verificación productiva independiente post-release
+Breakpoints renderizados:
 ```text
-VERIFY_RUN=31190922275
-VERIFY_JOB=92907210684
-VERIFY_SOURCE_SHA=238af9d0c4b64f3067ce6c3f3d6184aba7018595
-VERIFY_MODE=READ_ONLY
-RUN_CONCLUSION=success
-ACTIVE_DEPLOYMENT_ID=2c092d39-38c7-404a-93d2-44979e88e2c6
-ACTIVE_VERSION_ID=deff1f6a-4664-4c2e-a595-91ba91aeae52
-ACTIVE_TRAFFIC=100
-REMAINING_LEGACY_KV_KEYS=0
-HEALTH=PASS
-SESSION_PREVIEW=PASS
-EXACT_JS_ASSET=PASS
-BROWSER_DESKTOP_MOBILE=2/2_PASS
-POST_RELEASE_ARTIFACT_ID=8998788961
-POST_RELEASE_ARTIFACT_DIGEST=sha256:1b47e725b4f55fdb11ca8ae6cbacfb6aa34ac2c6a5cd7f67bb143a61a29ce057
+1440x1000=PASS
+1024x768=PASS
+768x1024=PASS
+390x844=PASS
+360x800=PASS
+320x568=PASS
 ```
 
-## Incidentes cerrados
-1. Parser del schema de deployments Cloudflare incompatible: corregido antes de deploy.
-2. Race de propagación de runtime: corregido con readiness polling; rollback previo exitoso.
-3. Race de assets estáticos: corregido con fingerprint gate; rollback previo exitoso.
-4. Bootstrap React bloqueado por session fetch sin timeout: reproducido, corregido y probado con sesión deliberadamente colgada.
-5. Aserción inmediata post-purge falló, pero el estado productivo posterior fue verificado por workflow read-only completo: fallo del gate temporal, no del producto.
+También verificados con fixtures sintéticos:
+- nombre, email y próxima acción largos;
+- workspace desktop/mobile;
+- editor mobile y 320px;
+- workspace vacío;
+- plan Free 100/100;
+- error de red + retry;
+- loading;
+- auth mobile;
+- targets táctiles;
+- no overflow horizontal.
 
-## Riesgos abiertos
-- Workers KV tiene consistencia eventual; colaboración concurrente multiusuario queda fuera de este piloto.
-- Pro no tiene billing integrado todavía.
-- No hay recuperación de contraseña ni verificación de email todavía.
-- `npm ci` mantiene 1 vulnerabilidad moderada preexistente; instalar Playwright temporalmente para CI muestra vulnerabilidades transitorias adicionales que no forman parte del bundle productivo.
+La evidencia visual final fue descargada e inspeccionada manualmente; el PASS no depende sólo de tests DOM.
+
+## Contención funcional
+Se conservó el producto canónico:
+`landing → demo ficticia → register/login → workspace privado → contactos → estados → próxima acción → notas → search/filter → CSV → Free≤100 → Pro interest`.
+
+No reintroducir:
+`Fotomultas / Repuestos agrícolas / Agro / scraping / discovery / radar / verticales legacy`.
+
+No se modificó backend por necesidad estética.
+
+## Riesgos abiertos preexistentes
+- PBKDF2 a 10.000 iteraciones sigue siendo deuda de seguridad del piloto por presupuesto CPU del Worker.
+- Workers KV tiene consistencia eventual; colaboración concurrente multiusuario queda fuera del piloto.
+- Pro no tiene billing integrado.
+- No hay recuperación de contraseña ni verificación de email.
+- `npm ci` mantiene 1 vulnerabilidad moderada preexistente.
+
+## Decisiones vigentes
+- Workers-first sigue siendo obligatorio: un candidato que requiere validación productiva no se mergea antes de esa validación.
+- PR #25 permanece candidato no productivo.
+- No publicar datos reales en GitHub, CI, docs ni screenshots.
+- El lenguaje comercial principal es `clientes`; el modelo técnico puede conservar `contacts/contactos` internamente.
+- No copiar obras o layouts existentes de HOVS, mymind, Semplice o Carbonmade.
 
 ## Próximo paso exacto
 ```text
-NEXT_EXACT_ACTION=OPERATE_PUBLIC_PILOT_AND_COLLECT_COMMERCIAL_FEEDBACK
+NEXT_EXACT_ACTION=OWNER_AUTHORIZE_WORKERS_FIRST_RELEASE_OF_PR25_CANDIDATE
 ```
+
+Si se autoriza: revalidar HEAD remoto de PR #25, desplegar primero a Workers, verificar producción completa, recién después reconciliar/mergear GitHub y actualizar CONTEXTO LEADX.

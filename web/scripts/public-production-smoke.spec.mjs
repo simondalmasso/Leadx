@@ -47,15 +47,16 @@ async function openPublicSurface(page, viewport) {
 test("LeadX public freemium desktop", async ({ page }) => {
   await openPublicSurface(page, { width: 1440, height: 1000 });
   await expect(page.getByRole("heading", { name: /Tus clientes/i })).toBeVisible();
-  await expect(page.getByText(/Gratis hasta 100 clientes/i).first()).toBeVisible();
-  await expect(page.getByText(/Datos 100% ficticios/i)).toBeVisible();
+  await expect(page.locator(".leadx-wordmark").first()).toBeVisible();
+  await expect(page.getByText(/100 clientes/i).first()).toBeVisible();
+  await expect(page.getByText(/demo ficticia|datos ficticios/i).first()).toBeVisible();
   await expect(page.locator("body")).not.toContainText(/Fotomultas|Repuestos agrícolas|Reddit|Radar/i);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(overflow).toBe(false);
   await page.getByLabel("Buscar contactos").fill("Nómada");
   await expect(page.getByText("Lucía Torres")).toBeVisible();
-  await page.getByRole("button", { name: /Empezar gratis/i }).first().click();
-  await expect(page.getByRole("heading", { name: /100 clientes gratis/i })).toBeVisible();
+  await page.getByRole("button", { name: /Crear espacio/i }).first().click();
+  await expect(page.getByRole("heading", { name: /100 clientes/i })).toBeVisible();
 });
 
 test("LeadX public freemium mobile", async ({ page }) => {
@@ -64,5 +65,5 @@ test("LeadX public freemium mobile", async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(overflow).toBe(false);
   await page.locator("#demo").scrollIntoViewIfNeeded();
-  await expect(page.getByText(/Preview interactiva/i)).toBeVisible();
+  await expect(page.getByText(/Mesa de señales · demo ficticia/i)).toBeVisible();
 });
