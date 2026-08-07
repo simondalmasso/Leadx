@@ -13,11 +13,11 @@ WORKING_BRANCH=feat/public-freemium-v1
 PR=23
 PR_STATE=DRAFT_OPEN
 BASE_DESIGN_HEAD=793c07a246ae54260a64551f0f2e5d5431cfe033
-CANDIDATE_SOURCE_SHA=75a566a35b49ca05976bdf127a2319f736358685
-CANDIDATE_CI_RUN=31188848991
-CANDIDATE_CI_JOB=92900212104
+CANDIDATE_SOURCE_SHA=2d776c97598cb6bd3c145efdd627db19ea09b37d
+CANDIDATE_CI_RUN=31189299587
+CANDIDATE_CI_JOB=92901748427
 CANDIDATE_CI=PASS
-RELEASE_STATUS=AUTHORIZED_WORKERS_FIRST_AFTER_SCHEMA_AND_PROPAGATION_FIXES
+RELEASE_STATUS=AUTHORIZED_WORKERS_FIRST_AFTER_SCHEMA_RUNTIME_AND_ASSET_PROPAGATION_FIXES
 PRODUCTION_URL=https://leadx.simondalmasso44.workers.dev/
 FREE_CONTACT_LIMIT=100
 DEMO=PUBLIC_SYNTHETIC_ONLY
@@ -58,9 +58,9 @@ PUBLIC_BROWSER
 
 ## Gate pre-release ejecutado
 ```text
-RUN_ID=31188848991
-JOB_ID=92900212104
-HEAD=75a566a35b49ca05976bdf127a2319f736358685
+RUN_ID=31189299587
+JOB_ID=92901748427
+HEAD=2d776c97598cb6bd3c145efdd627db19ea09b37d
 INSTALL_FROZEN=PASS
 BUILD=PASS
 PUBLIC_PRODUCT_TESTS=PASS
@@ -73,28 +73,34 @@ WRANGLER_DRY_RUN=PASS
 ## Incidentes de release y correcciones
 ```text
 INCIDENT_1_RUN=31188128602
-INCIDENT_1_JOB=92897792944
 INCIDENT_1_CAUSE=Cloudflare deployments response parsed as .result[0] although current schema exposes .result.deployments
 INCIDENT_1_DEPLOY_ATTEMPTED=NO
 INCIDENT_1_PRODUCTION_CHANGED=NO
 INCIDENT_1_FIX=1a4b83869e2f26226b850fb5c584d3c02ca2da2a
 
 INCIDENT_2_RUN=31188457557
-INCIDENT_2_JOB=92898885449
 INCIDENT_2_NEW_DEPLOYMENT_ID=ddb6f1f2-6437-4085-81c8-c5bae895d617
 INCIDENT_2_NEW_VERSION_ID=5537b887-09c0-45c9-8f1f-02da3e16fbdb
-INCIDENT_2_CAUSE=Production smoke executed immediately after control-plane activation and observed the previous runtime during propagation
-INCIDENT_2_OBSERVED_HEALTH_VERSION=leadx-multiline-v1
-INCIDENT_2_OBSERVED_SESSION_MODE=demo
+INCIDENT_2_CAUSE=Runtime smoke raced Worker propagation and observed the previous runtime
 INCIDENT_2_ROLLBACK=PASS
-INCIDENT_2_RESTORED_VERSION_ID=8194e500-d692-40ef-acb6-cbfdda9e9b4e
 INCIDENT_2_LEGACY_KV_PURGED=NO
 INCIDENT_2_FIX=75a566a35b49ca05976bdf127a2319f736358685
-INCIDENT_2_FIX_DETAIL=Poll exact public release readiness before browser smoke; keep all release assertions unchanged
+
+INCIDENT_3_RUN=31188967430
+INCIDENT_3_JOB=92900616415
+INCIDENT_3_NEW_DEPLOYMENT_ID=e0c6f737-0293-433e-80bf-80bee53bb185
+INCIDENT_3_NEW_VERSION_ID=7a5275be-aacd-4107-ac2d-4306c1d836d6
+INCIDENT_3_RUNTIME_READY_ATTEMPT=4
+INCIDENT_3_CAUSE=Worker API propagated before static UI assets; desktop Playwright hit its 30s global timeout while waiting for the new public surface, while mobile subsequently observed the new UI at propagation attempt 8
+INCIDENT_3_ROLLBACK=PASS
+INCIDENT_3_RESTORED_VERSION_ID=8194e500-d692-40ef-acb6-cbfdda9e9b4e
+INCIDENT_3_LEGACY_KV_PURGED=NO
+INCIDENT_3_FIX=2d776c97598cb6bd3c145efdd627db19ea09b37d
+INCIDENT_3_FIX_DETAIL=Gate Playwright on the exact locally-built JS asset fingerprint being served from production; functional assertions remain unchanged
 ```
 
 ## Release gate
-Este commit autoriza un nuevo Workers-first sólo porque las dos causas observadas fueron identificadas, corregidas y validadas en CI. No declarar público hasta registrar deployment/version nuevos, 100% traffic, readiness exacta, browser smoke PASS, purge de las 6 claves KV legacy observadas, cero claves legacy remanentes y smoke post-purge PASS. Si el smoke pre-purge falla, restaurar el version ID anterior y no purgar KV.
+Este commit autoriza otro Workers-first porque la tercera causa también fue identificada, corregida y validada en CI. No declarar público hasta registrar deployment/version nuevos, 100% traffic, runtime readiness exacta, asset fingerprint exacto servido, browser desktop/mobile PASS, purge de las 6 claves KV legacy, cero claves legacy remanentes y smoke post-purge PASS. Si cualquier gate pre-purge falla, restaurar el version ID anterior y no purgar KV.
 
 ## Riesgos conocidos del piloto
 - Workers KV tiene consistencia eventual; colaboración concurrente multiusuario queda fuera de este piloto.
