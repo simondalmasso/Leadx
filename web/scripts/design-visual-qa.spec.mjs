@@ -104,9 +104,10 @@ test("workspace long-content desktop", async ({ page }, testInfo) => {
   await page.goto(baseURL, { waitUntil: "domcontentloaded" });
   await waitReady(page);
   await expect(page.getByRole("heading", { name: /Qué tiene que pasar después/i })).toBeVisible();
-  await expect(page.getByText(longContact.name)).toBeVisible();
-  await expect(page.getByText(longContact.next_action)).toBeVisible();
-  await expect(page.getByText("Vence hoy")).toBeVisible();
+  const targetRow = page.locator(".contact-row").filter({ hasText: longContact.name });
+  await expect(targetRow.getByText(longContact.name)).toBeVisible();
+  await expect(targetRow.getByText(longContact.next_action)).toBeVisible();
+  await expect(targetRow.getByText("Vence hoy")).toBeVisible();
   await assertNoOverflow(page);
   await page.screenshot({ path: testInfo.outputPath("workspace-desktop-long.png"), fullPage: true });
 });
