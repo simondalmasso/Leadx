@@ -20,12 +20,13 @@ const FREE_CONTACT_LIMIT = 100;
 const STATUS_ORDER: ContactStatus[] = ["Nuevo", "Contactado", "Calificado", "Propuesta", "Cliente", "Pausado"];
 const ACTIVE_STATUSES = new Set<ContactStatus>(["Nuevo", "Contactado", "Calificado", "Propuesta"]);
 const EMPTY_PLAN: PlanSnapshot = { plan: "free", limit: FREE_CONTACT_LIMIT, count: 0, remaining: FREE_CONTACT_LIMIT };
-const EMPTY_CONTACT: Partial<Contact> = { name: "", company: "", email: "", phone: "", status: "Nuevo", source: "", notes: "", next_action: "" };
+const EMPTY_CONTACT: Partial<Contact> = { name: "", company: "", email: "", phone: "", status: "Nuevo", source: "", notes: "", next_action: "", next_action_due_at: "" };
 
 type AuthMode = "register" | "login";
 type NoticeTone = "success" | "danger" | "info";
 type QueueView = "pending" | "missing" | "clients" | "all";
 type ContactSort = "action" | "recent" | "name";
+type DueState = "overdue" | "today" | "upcoming" | "none";
 
 type ContactEditorProps = {
   contact?: Contact | null;
@@ -40,8 +41,30 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(new Date(timestamp));
 }
 
+function formatDue(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(new Date(year, month - 1, day));
+}
+
+function todayKey() {
+  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function dueState(contact: Contact): DueState {
+  if (!isPending(contact) || !contact.next_action_due_at) return "none";
+  const today = todayKey();
+  if (contact.next_action_due_at < today) return "overdue";
+  if (contact.next_action_due_at === today) return "today";
+  return "upcoming";
+}
+
+function signalTimestamp(contact: Contact) {
+  return Date.parse(contact.last_signal_at || contact.updated_at || contact.created_at) || 0;
+}
+
 function contactSearch(contact: Contact) {
-  return [contact.name, contact.company, contact.email, contact.phone, contact.status, contact.source, contact.next_action].join(" ").toLowerCase();
+  return [contact.name, contact.company, contact.email, contact.phone, contact.status, contact.source, contact.next_action, contact.next_action_due_at].join(" ").toLowerCase();
 }
 
 function statusTone(status: ContactStatus) {
@@ -56,17 +79,33 @@ function needsNextAction(contact: Contact) {
   return isPending(contact) && !contact.next_action.trim();
 }
 
+function priorityBucket(contact: Contact) {
+  if (!isPending(contact)) return 5;
+  const due = dueState(contact);
+  if (due === "overdue") return 0;
+  if (due === "today") return 1;
+  if (needsNextAction(contact)) return 2;
+  if (due === "upcoming") return 3;
+  return 4;
+}
+
 function actionPriority(a: Contact, b: Contact) {
-  const missingDelta = Number(needsNextAction(a)) - Number(needsNextAction(b));
-  if (missingDelta !== 0) return -missingDelta;
-  const aUpdated = Date.parse(a.updated_at || a.created_at) || 0;
-  const bUpdated = Date.parse(b.updated_at || b.created_at) || 0;
-  if (aUpdated !== bUpdated) return aUpdated - bUpdated;
+  const bucketDelta = priorityBucket(a) - priorityBucket(b);
+  if (bucketDelta !== 0) return bucketDelta;
+  if (a.next_action_due_at && b.next_action_due_at && a.next_action_due_at !== b.next_action_due_at) {
+    return a.next_action_due_at.localeCompare(b.next_action_due_at);
+  }
+  const signalDelta = signalTimestamp(a) - signalTimestamp(b);
+  if (signalDelta !== 0) return signalDelta;
   return a.name.localeCompare(b.name, "es");
 }
 
 function actionReason(contact: Contact) {
   if (needsNextAction(contact)) return "Sin próxima acción";
+  const due = dueState(contact);
+  if (due === "overdue") return `Vencida · ${formatDue(contact.next_action_due_at)}`;
+  if (due === "today") return "Vence hoy";
+  if (due === "upcoming") return `Próxima · ${formatDue(contact.next_action_due_at)}`;
   if (contact.status === "Nuevo") return "Resolver primer contacto";
   if (contact.status === "Contactado") return "Seguimiento pendiente";
   if (contact.status === "Calificado") return "Oportunidad calificada";
@@ -75,12 +114,26 @@ function actionReason(contact: Contact) {
   return "Pausado";
 }
 
+function actionMetaClass(contact: Contact) {
+  const due = dueState(contact);
+  if (due === "overdue") return "contact-next__meta contact-next__meta--overdue";
+  if (due === "today") return "contact-next__meta contact-next__meta--today";
+  if (needsNextAction(contact)) return "contact-next__meta contact-next__meta--missing";
+  return "contact-next__meta";
+}
+
+function safeCsvValue(value: unknown) {
+  const raw = String(value ?? "");
+  const neutralized = /^[\t\r\n ]*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${neutralized.replaceAll('"', '""')}"`;
+}
+
 function exportCsv(contacts: Contact[]) {
   const rows = [
-    ["Nombre", "Empresa", "Email", "Telefono", "Estado", "Fuente", "Proxima accion", "Notas", "Creado"],
-    ...contacts.map((contact) => [contact.name, contact.company, contact.email, contact.phone, contact.status, contact.source, contact.next_action, contact.notes, contact.created_at]),
+    ["Nombre", "Empresa", "Email", "Telefono", "Estado", "Fuente", "Proxima accion", "Fecha proxima accion", "Notas", "Ultima señal", "Creado"],
+    ...contacts.map((contact) => [contact.name, contact.company, contact.email, contact.phone, contact.status, contact.source, contact.next_action, contact.next_action_due_at, contact.notes, contact.last_signal_at, contact.created_at]),
   ];
-  const csv = rows.map((row) => row.map((value) => `"${String(value || "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  const csv = rows.map((row) => row.map(safeCsvValue).join(",")).join("\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -163,7 +216,8 @@ function ContactEditor({ contact, onClose, onSave, onDelete }: ContactEditorProp
         <div className="editor-primary">
           <label className="field field--name"><span>Nombre *</span><input autoFocus required maxLength={120} value={draft.name || ""} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Ej. Lucía Torres" /></label>
           <label className="field"><span>Estado</span><select value={draft.status || "Nuevo"} onChange={(e) => setDraft({ ...draft, status: e.target.value as ContactStatus })}>{STATUS_ORDER.map((status) => <option key={status}>{status}</option>)}</select></label>
-          <label className="field field--action"><span>Próxima acción</span><input maxLength={220} value={draft.next_action || ""} onChange={(e) => setDraft({ ...draft, next_action: e.target.value })} placeholder="Qué tiene que pasar después" /></label>
+          <label className="field field--action"><span>Próxima acción</span><input maxLength={220} value={draft.next_action || ""} onChange={(e) => { const nextAction = e.target.value; setDraft({ ...draft, next_action: nextAction, next_action_due_at: nextAction.trim() ? draft.next_action_due_at || "" : "" }); }} placeholder="Qué tiene que pasar después" /></label>
+          <label className="field field--due"><span>Fecha objetivo</span><input type="date" value={draft.next_action_due_at || ""} disabled={!draft.next_action?.trim()} onChange={(e) => setDraft({ ...draft, next_action_due_at: e.target.value })} /></label>
         </div>
 
         <div className="editor-secondary">
@@ -274,7 +328,7 @@ function ContactDesk({ contacts, preview, plan, loading = false, error = "", onA
       })
       .sort((a, b) => {
         if (sort === "name") return a.name.localeCompare(b.name, "es");
-        if (sort === "recent") return Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at);
+        if (sort === "recent") return signalTimestamp(b) - signalTimestamp(a);
         return actionPriority(a, b);
       });
   }, [contacts, queueView, search, sort, status]);
@@ -322,11 +376,11 @@ function ContactDesk({ contacts, preview, plan, loading = false, error = "", onA
       <div className="desk-toolbar">
         <label className="search-field"><Search size={18} aria-hidden="true" /><span className="sr-only">Buscar contactos</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar dentro de esta vista…" aria-label="Buscar contactos" /></label>
         <label className="select-field"><span>Estado</span><select value={status} onChange={(e) => setStatus(e.target.value as ContactStatus | "Todos")}><option>Todos</option>{STATUS_ORDER.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} aria-hidden="true" /></label>
-        <label className="select-field"><span>Orden</span><select value={sort} onChange={(e) => setSort(e.target.value as ContactSort)}><option value="action">Prioridad de acción</option><option value="recent">Actividad reciente</option><option value="name">Nombre A–Z</option></select><ChevronDown size={15} aria-hidden="true" /></label>
+        <label className="select-field"><span>Orden</span><select value={sort} onChange={(e) => setSort(e.target.value as ContactSort)}><option value="action">Prioridad de acción</option><option value="recent">Señal reciente</option><option value="name">Nombre A–Z</option></select><ChevronDown size={15} aria-hidden="true" /></label>
       </div>
 
       <div className="contact-ledger" aria-label="Contactos">
-        <div className="contact-ledger__head" aria-hidden="true"><span>Contacto</span><span>Estado</span><span>Próxima acción</span><span>Actividad</span></div>
+        <div className="contact-ledger__head" aria-hidden="true"><span>Contacto</span><span>Estado</span><span>Próxima acción</span><span>Señal</span></div>
 
         {loading && <div className="ledger-loading" aria-live="polite" aria-label="Cargando contactos">{Array.from({ length: 5 }).map((_, index) => <span key={index} />)}</div>}
 
@@ -336,8 +390,8 @@ function ContactDesk({ contacts, preview, plan, loading = false, error = "", onA
           <button className="contact-row" key={contact.id} onClick={() => onOpen(contact)}>
             <span className="contact-main"><strong>{contact.name}</strong><small>{contact.company || "Sin empresa"}<b aria-hidden="true">·</b>{contact.email || contact.phone || "Sin dato de contacto"}</small></span>
             <Status value={contact.status} />
-            <span className="contact-next"><small className={needsNextAction(contact) ? "contact-next__meta contact-next__meta--missing" : "contact-next__meta"}>{actionReason(contact)}</small><strong>{contact.next_action || "Definir próxima acción"}</strong></span>
-            <span className="contact-date">{formatDate(contact.updated_at || contact.created_at)}</span>
+            <span className="contact-next"><small className={actionMetaClass(contact)}>{actionReason(contact)}</small><strong>{contact.next_action || "Definir próxima acción"}</strong></span>
+            <span className="contact-date">{formatDate(contact.last_signal_at || contact.updated_at || contact.created_at)}</span>
           </button>
         ))}
 
@@ -369,8 +423,10 @@ export default function App() {
       const result = await api.contacts();
       setContacts(result.contacts);
       setPlan(result.plan);
+      return true;
     } catch (reason) {
       setWorkspaceError(reason instanceof Error ? reason.message : "No pudimos cargar tus contactos.");
+      return false;
     } finally {
       setWorkspaceLoading(false);
     }
@@ -408,8 +464,8 @@ export default function App() {
   const authSuccess = async (next: SessionInfo) => {
     setSession(next);
     setPlan(next.plan || EMPTY_PLAN);
-    await loadWorkspace();
-    showNotice("Tu espacio está listo. El plan Free incluye hasta 100 clientes.", "success");
+    const loaded = await loadWorkspace();
+    showNotice(loaded ? "Tu espacio está listo. El plan Free incluye hasta 100 clientes." : "Ingresaste, pero no pudimos cargar tu espacio. Reintentá desde la mesa.", loaded ? "success" : "danger");
     window.setTimeout(() => document.getElementById("workspace")?.scrollIntoView({ behavior: "smooth" }), 80);
   };
 
@@ -522,7 +578,7 @@ export default function App() {
           <div className="steps">
             <article><span>01 / Contact</span><h3>¿Quién es?</h3><p>Persona, empresa y la mínima información útil. Nada de completar un formulario infinito.</p></article>
             <article><span>02 / Signal</span><h3>¿Dónde está?</h3><p>Nuevo, contactado, calificado, propuesta, cliente o pausado. Un estado legible, no un dashboard de colores.</p></article>
-            <article><span>03 / Next</span><h3>¿Qué sigue?</h3><p>LeadX pone primero lo que falta resolver y separa las relaciones sin próxima acción para que ninguna quede flotando.</p></article>
+            <article><span>03 / Next</span><h3>¿Qué sigue?</h3><p>LeadX pone primero lo vencido, después lo que toca hoy y separa las relaciones sin próxima acción para que ninguna quede flotando.</p></article>
           </div>
         </section>
 
@@ -531,7 +587,7 @@ export default function App() {
           <div className="pricing-grid">
             <article className="plan-card plan-card--free">
               <header><span className="plan-label">Free · disponible ahora</span><strong className="plan-price">$0</strong><small>para siempre</small></header>
-              <ul><li><Check size={16} /> Hasta 100 clientes</li><li><Check size={16} /> Vistas operativas y próxima acción</li><li><Check size={16} /> Notas, búsqueda y filtros</li><li><Check size={16} /> Exportación CSV</li><li><Check size={16} /> Sin tarjeta ni vencimiento</li></ul>
+              <ul><li><Check size={16} /> Hasta 100 clientes</li><li><Check size={16} /> Vistas operativas y próxima acción con fecha</li><li><Check size={16} /> Notas, búsqueda y filtros</li><li><Check size={16} /> Exportación CSV segura</li><li><Check size={16} /> Sin tarjeta ni vencimiento</li></ul>
               <button className="btn btn--signal btn--wide" onClick={() => setAuthOpen("register")}>Crear espacio gratis</button>
             </article>
             <article className="plan-card plan-card--pro">
