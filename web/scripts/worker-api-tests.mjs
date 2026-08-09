@@ -60,7 +60,7 @@ test("health fails closed when write protection binding is missing", async () =>
   assert.equal(healthy.payload.status, "ok");
   assert.equal(healthy.payload.write_protection, "ready");
 
-  const degraded = await call(makeEnv({ limiter: undefined }), "/api/health");
+  const degraded = await call(makeEnv({ limiter: null }), "/api/health");
   assert.equal(degraded.response.status, 503);
   assert.equal(degraded.payload.status, "degraded");
   assert.equal(degraded.payload.write_protection, "unavailable");
