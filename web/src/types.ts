@@ -10,6 +10,8 @@ export type Contact = {
   source: string;
   notes: string;
   next_action: string;
+  next_action_due_at: string;
+  last_signal_at: string;
   created_at: string;
   updated_at: string;
   demo?: boolean;
