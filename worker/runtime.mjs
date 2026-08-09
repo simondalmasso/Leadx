@@ -341,6 +341,7 @@ async function contactItem(request, env, id) {
 async function proInterest(request, env) {
   const auth = await requireUser(request, env);
   if (!auth) return apiError("Creá tu espacio gratis para anotarte a Pro.", 401, "unauthorized");
+  await requireRateLimit(env, `pro-interest:${auth.user.id}`);
   await env.LEADX_KV.put(`lx:pro-interest:${auth.user.id}`, JSON.stringify({ email: auth.user.email, createdAt: new Date().toISOString() }));
   return json({ ok: true });
 }
@@ -357,14 +358,14 @@ async function handleApi(request, env, url) {
         write_protection: writeProtectionReady ? "ready" : "unavailable",
       }, writeProtectionReady ? 200 : 503);
     }
-    if (url.pathname === "/api/auth/register" && request.method === "POST") return register(request, env);
-    if (url.pathname === "/api/auth/login" && request.method === "POST") return login(request, env);
-    if (url.pathname === "/api/auth/logout" && request.method === "POST") return logout(request, env);
-    if (url.pathname === "/api/auth/session" && request.method === "GET") return session(request, env);
-    if (url.pathname === "/api/contacts") return contactsCollection(request, env);
-    if (url.pathname === "/api/pro-interest" && request.method === "POST") return proInterest(request, env);
+    if (url.pathname === "/api/auth/register" && request.method === "POST") return await register(request, env);
+    if (url.pathname === "/api/auth/login" && request.method === "POST") return await login(request, env);
+    if (url.pathname === "/api/auth/logout" && request.method === "POST") return await logout(request, env);
+    if (url.pathname === "/api/auth/session" && request.method === "GET") return await session(request, env);
+    if (url.pathname === "/api/contacts") return await contactsCollection(request, env);
+    if (url.pathname === "/api/pro-interest" && request.method === "POST") return await proInterest(request, env);
     const match = url.pathname.match(/^\/api\/contacts\/([0-9a-f-]{36})$/i);
-    if (match) return contactItem(request, env, match[1]);
+    if (match) return await contactItem(request, env, match[1]);
     return apiError("Ruta no encontrada.", 404, "not_found");
   } catch (error) {
     if (error instanceof Error && error.message === "payload_too_large") return apiError("El contenido supera el tamaño permitido.", 413, "payload_too_large");
