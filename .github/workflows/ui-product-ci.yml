@@ -11,6 +11,7 @@ on:
       - 'docs/**'
       - '.github/workflows/ui-product-ci.yml'
       - '.github/workflows/public-saas-release.yml'
+      - '.github/workflows/public-post-release-verify.yml'
 
 permissions:
   contents: read
@@ -37,10 +38,13 @@ jobs:
       - name: Install frozen dependencies
         run: npm --prefix web ci
 
+      - name: Dependency audit high+
+        run: npm --prefix web audit --audit-level=high
+
       - name: Build
         run: npm --prefix web run build
 
-      - name: Product contract tests
+      - name: Product and Worker API contract tests
         run: npm --prefix web test
 
       - name: Typecheck
