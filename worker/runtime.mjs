@@ -3,7 +3,9 @@ const FREE_CONTACT_LIMIT = 100;
 const SESSION_COOKIE = "leadx_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_BODY_BYTES = 64 * 1024;
+const PASSWORD_ITERATIONS = 10000;
 const CONTACT_STATUSES = new Set(["Nuevo", "Contactado", "Calificado", "Propuesta", "Cliente", "Pausado"]);
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const encoder = new TextEncoder();
 
@@ -57,10 +59,10 @@ async function sha256(value) {
   return bytesToHex(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
 }
 
-async function passwordHash(password, salt) {
+async function passwordHash(password, salt, iterations = PASSWORD_ITERATIONS) {
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations: 10000 },
+    { name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations },
     key,
     256
   );
@@ -122,6 +124,13 @@ function validEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function validDateOnly(value) {
+  if (!DATE_ONLY_RE.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 function publicUser(user) {
   return { email: user.email, plan: user.plan || "free" };
 }
@@ -156,10 +165,10 @@ async function requireUser(request, env) {
   return { token, user: JSON.parse(userRaw) };
 }
 
-async function rateLimit(env, key) {
-  if (!env.AUTH_RATE_LIMITER?.limit) return true;
+async function requireRateLimit(env, key) {
+  if (!env.AUTH_RATE_LIMITER?.limit) throw new Error("rate_limiter_unavailable");
   const result = await env.AUTH_RATE_LIMITER.limit({ key });
-  return result.success;
+  if (!result?.success) throw new Error("rate_limited");
 }
 
 async function register(request, env) {
@@ -168,15 +177,14 @@ async function register(request, env) {
   const password = String(body.password || "");
   if (!validEmail(email)) return apiError("Ingresá un email válido.", 400, "invalid_email");
   if (password.length < 10 || password.length > 128) return apiError("La contraseña debe tener entre 10 y 128 caracteres.", 400, "invalid_password");
-  const rateKey = `register:${await sha256(email)}`;
-  if (!(await rateLimit(env, rateKey))) return apiError("Demasiados intentos. Probá nuevamente en un minuto.", 429, "rate_limited");
+  await requireRateLimit(env, `register:${await sha256(email)}`);
   if (await getUserByEmail(env, email)) return apiError("Ese email ya tiene una cuenta.", 409, "email_exists");
 
   const userId = crypto.randomUUID();
   const salt = randomToken(18);
   const hash = await passwordHash(password, salt);
   const now = new Date().toISOString();
-  const user = { id: userId, email, passwordHash: hash, salt, plan: "free", createdAt: now };
+  const user = { id: userId, email, passwordHash: hash, salt, passwordIterations: PASSWORD_ITERATIONS, plan: "free", createdAt: now };
   const safeUser = { id: userId, email, plan: "free", createdAt: now };
   const emailHash = await sha256(email);
   await Promise.all([
@@ -193,11 +201,13 @@ async function login(request, env) {
   const email = normalizeEmail(body.email);
   const password = String(body.password || "");
   if (!validEmail(email) || !password) return apiError("Email o contraseña incorrectos.", 401, "invalid_credentials");
-  const rateKey = `login:${await sha256(email)}`;
-  if (!(await rateLimit(env, rateKey))) return apiError("Demasiados intentos. Probá nuevamente en un minuto.", 429, "rate_limited");
+  await requireRateLimit(env, `login:${await sha256(email)}`);
   const user = await getUserByEmail(env, email);
   if (!user) return apiError("Email o contraseña incorrectos.", 401, "invalid_credentials");
-  const candidate = await passwordHash(password, user.salt);
+  const iterations = Number.isInteger(user.passwordIterations) && user.passwordIterations >= PASSWORD_ITERATIONS
+    ? user.passwordIterations
+    : PASSWORD_ITERATIONS;
+  const candidate = await passwordHash(password, user.salt, iterations);
   if (!constantTimeEqual(candidate, user.passwordHash)) return apiError("Email o contraseña incorrectos.", 401, "invalid_credentials");
   const token = await createSession(env, user.id);
   const contacts = await loadContacts(env, user.id);
@@ -220,12 +230,14 @@ async function session(request, env) {
 async function loadContacts(env, userId) {
   const raw = await env.LEADX_KV.get(`lx:contacts:${userId}`);
   if (!raw) return [];
+  let value;
   try {
-    const value = JSON.parse(raw);
-    return Array.isArray(value) ? value : [];
+    value = JSON.parse(raw);
   } catch {
-    return [];
+    throw new Error("contacts_corrupt");
   }
+  if (!Array.isArray(value)) throw new Error("contacts_corrupt");
+  return value;
 }
 
 async function saveContacts(env, userId, contacts) {
@@ -240,6 +252,10 @@ function planSnapshot(user, count) {
 
 function normalizeContact(input, existing = {}) {
   const status = cleanText(input.status ?? existing.status ?? "Nuevo", 40);
+  const nextAction = cleanText(input.next_action ?? existing.next_action, 220);
+  const nextActionDueAt = cleanText(input.next_action_due_at ?? existing.next_action_due_at, 10);
+  if (nextActionDueAt && !validDateOnly(nextActionDueAt)) throw new Error("invalid_due_date");
+  if (nextActionDueAt && !nextAction) throw new Error("due_without_action");
   return {
     ...existing,
     name: cleanText(input.name ?? existing.name, 120),
@@ -249,8 +265,20 @@ function normalizeContact(input, existing = {}) {
     status: CONTACT_STATUSES.has(status) ? status : "Nuevo",
     source: cleanText(input.source ?? existing.source, 80),
     notes: cleanText(input.notes ?? existing.notes, 2000),
-    next_action: cleanText(input.next_action ?? existing.next_action, 220),
+    next_action: nextAction,
+    next_action_due_at: nextActionDueAt,
   };
+}
+
+function duplicateEmail(contacts, email, excludedId = "") {
+  if (!email) return false;
+  return contacts.some((contact) => contact.id !== excludedId && normalizeEmail(contact.email) === email);
+}
+
+function commercialSignalChanged(previous, next) {
+  return previous.status !== next.status
+    || (previous.next_action || "") !== next.next_action
+    || (previous.next_action_due_at || "") !== next.next_action_due_at;
 }
 
 async function contactsCollection(request, env) {
@@ -260,7 +288,7 @@ async function contactsCollection(request, env) {
   if (request.method === "GET") return json({ contacts, plan: planSnapshot(auth.user, contacts.length) });
   if (request.method !== "POST") return apiError("Método no permitido.", 405, "method_not_allowed");
 
-  if (!(await rateLimit(env, `contact-write:${auth.user.id}`))) return apiError("Demasiadas modificaciones. Probá nuevamente en un minuto.", 429, "rate_limited");
+  await requireRateLimit(env, `contact-write:${auth.user.id}`);
   const plan = planSnapshot(auth.user, contacts.length);
   if (plan.limit !== null && contacts.length >= plan.limit) {
     return apiError("Llegaste al límite de 100 contactos del plan Free. Tus datos siguen intactos; pasá a Pro para crear más.", 403, "free_limit_reached");
@@ -268,8 +296,9 @@ async function contactsCollection(request, env) {
   const body = await readJsonBody(request);
   const contact = normalizeContact(body);
   if (!contact.name) return apiError("El nombre es obligatorio.", 400, "name_required");
+  if (duplicateEmail(contacts, contact.email)) return apiError("Ya existe un contacto con ese email en tu espacio.", 409, "duplicate_email");
   const now = new Date().toISOString();
-  const created = { id: crypto.randomUUID(), ...contact, created_at: now, updated_at: now };
+  const created = { id: crypto.randomUUID(), ...contact, last_signal_at: now, created_at: now, updated_at: now };
   const next = [created, ...contacts];
   await saveContacts(env, auth.user.id, next);
   return json({ ok: true, contact: created, plan: planSnapshot(auth.user, next.length) }, 201);
@@ -278,7 +307,7 @@ async function contactsCollection(request, env) {
 async function contactItem(request, env, id) {
   const auth = await requireUser(request, env);
   if (!auth) return apiError("Iniciá sesión para usar tu espacio.", 401, "unauthorized");
-  if (!(await rateLimit(env, `contact-write:${auth.user.id}`))) return apiError("Demasiadas modificaciones. Probá nuevamente en un minuto.", 429, "rate_limited");
+  await requireRateLimit(env, `contact-write:${auth.user.id}`);
   const contacts = await loadContacts(env, auth.user.id);
   const index = contacts.findIndex((contact) => contact.id === id);
   if (index === -1) return apiError("Contacto no encontrado.", 404, "not_found");
@@ -290,8 +319,19 @@ async function contactItem(request, env, id) {
   }
   if (request.method !== "PATCH") return apiError("Método no permitido.", 405, "method_not_allowed");
   const body = await readJsonBody(request);
-  const updated = { ...normalizeContact(body, contacts[index]), id, created_at: contacts[index].created_at, updated_at: new Date().toISOString() };
-  if (!updated.name) return apiError("El nombre es obligatorio.", 400, "name_required");
+  const normalized = normalizeContact(body, contacts[index]);
+  if (!normalized.name) return apiError("El nombre es obligatorio.", 400, "name_required");
+  if (duplicateEmail(contacts, normalized.email, id)) return apiError("Ya existe un contacto con ese email en tu espacio.", 409, "duplicate_email");
+  const now = new Date().toISOString();
+  const updated = {
+    ...normalized,
+    id,
+    created_at: contacts[index].created_at,
+    last_signal_at: commercialSignalChanged(contacts[index], normalized)
+      ? now
+      : contacts[index].last_signal_at || contacts[index].updated_at || contacts[index].created_at,
+    updated_at: now,
+  };
   const next = contacts.slice();
   next[index] = updated;
   await saveContacts(env, auth.user.id, next);
@@ -308,7 +348,14 @@ async function proInterest(request, env) {
 async function handleApi(request, env, url) {
   try {
     if (url.pathname === "/api/health" && request.method === "GET") {
-      return json({ status: "ok", service: "leadx", release: RELEASE, free_contact_limit: FREE_CONTACT_LIMIT });
+      const writeProtectionReady = Boolean(env.AUTH_RATE_LIMITER?.limit);
+      return json({
+        status: writeProtectionReady ? "ok" : "degraded",
+        service: "leadx",
+        release: RELEASE,
+        free_contact_limit: FREE_CONTACT_LIMIT,
+        write_protection: writeProtectionReady ? "ready" : "unavailable",
+      }, writeProtectionReady ? 200 : 503);
     }
     if (url.pathname === "/api/auth/register" && request.method === "POST") return register(request, env);
     if (url.pathname === "/api/auth/login" && request.method === "POST") return login(request, env);
@@ -322,6 +369,11 @@ async function handleApi(request, env, url) {
   } catch (error) {
     if (error instanceof Error && error.message === "payload_too_large") return apiError("El contenido supera el tamaño permitido.", 413, "payload_too_large");
     if (error instanceof Error && error.message === "invalid_json") return apiError("JSON inválido.", 400, "invalid_json");
+    if (error instanceof Error && error.message === "invalid_due_date") return apiError("La fecha de próxima acción no es válida.", 400, "invalid_due_date");
+    if (error instanceof Error && error.message === "due_without_action") return apiError("Definí una próxima acción antes de asignarle fecha.", 400, "due_without_action");
+    if (error instanceof Error && error.message === "rate_limited") return apiError("Demasiados intentos. Probá nuevamente en un minuto.", 429, "rate_limited");
+    if (error instanceof Error && error.message === "rate_limiter_unavailable") return apiError("Las escrituras están temporalmente protegidas. Probá nuevamente en unos minutos.", 503, "write_protection_unavailable");
+    if (error instanceof Error && error.message === "contacts_corrupt") return apiError("No pudimos leer tus contactos de forma segura. No se modificó ningún dato.", 500, "data_integrity_error");
     return apiError("No pudimos completar la operación.", 500, "internal_error");
   }
 }
