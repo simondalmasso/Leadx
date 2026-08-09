@@ -1,8 +1,7 @@
 name: LeadX Public Post-Release Verification
 
 on:
-  push:
-    branches: [feat/public-freemium-v1]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +12,6 @@ concurrency:
 
 jobs:
   verify:
-    if: startsWith(github.event.head_commit.message, 'verify(public):')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -42,7 +40,7 @@ jobs:
           test -n "$EXPECTED_JS_ASSET"
           echo "EXPECTED_JS_ASSET=$EXPECTED_JS_ASSET" >> "$GITHUB_ENV"
 
-      - name: Verify active Cloudflare deployment and legacy KV purge
+      - name: Verify active Cloudflare deployment and KV namespace safety
         shell: bash
         run: |
           set -euo pipefail
@@ -56,30 +54,39 @@ jobs:
               if (.result | type) == "array" then .result
               elif (.result | type) == "object" and (.result.deployments | type) == "array" then .result.deployments
               else error("Unexpected Cloudflare deployments response schema") end;
+            def latest_deployment: deployments | sort_by(.created_on // "") | reverse | .[0];
             .success == true and
             (deployments | length) > 0 and
-            (deployments[0].versions | length) == 1 and
-            deployments[0].versions[0].percentage == 100
+            (latest_deployment.versions | length) == 1 and
+            latest_deployment.versions[0].percentage == 100
           ' artifacts/post-release/deployments.json >/dev/null
-          DEPLOYMENT_ID="$(jq -r 'if (.result|type)=="array" then .result[0].id else .result.deployments[0].id end' artifacts/post-release/deployments.json)"
-          VERSION_ID="$(jq -r 'if (.result|type)=="array" then .result[0].versions[] else .result.deployments[0].versions[] end | select(.percentage==100) | .version_id' artifacts/post-release/deployments.json | head -n1)"
+          DEPLOYMENT_ID="$(jq -r '
+            def deployments: if (.result|type)=="array" then .result else .result.deployments end;
+            deployments | sort_by(.created_on // "") | reverse | .[0].id
+          ' artifacts/post-release/deployments.json)"
+          VERSION_ID="$(jq -r '
+            def deployments: if (.result|type)=="array" then .result else .result.deployments end;
+            deployments | sort_by(.created_on // "") | reverse | .[0].versions[] | select(.percentage==100) | .version_id
+          ' artifacts/post-release/deployments.json | head -n1)"
           test -n "$DEPLOYMENT_ID"
           test -n "$VERSION_ID"
           echo "ACTIVE_DEPLOYMENT_ID=$DEPLOYMENT_ID"
           echo "ACTIVE_VERSION_ID=$VERSION_ID"
           echo "ACTIVE_TRAFFIC=100"
 
-          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > artifacts/post-release/kv.json
-          LEGACY_COUNT="$(jq '[.[].name | select(startswith("lx:") | not)] | length' artifacts/post-release/kv.json)"
-          test "$LEGACY_COUNT" = "0"
-          echo "REMAINING_LEGACY_KV_KEYS=0"
+          KV_TMP="$RUNNER_TEMP/leadx-post-release-kv.json"
+          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$KV_TMP"
+          UNEXPECTED_NON_LX_KV_KEYS="$(jq '[.[].name | select(startswith("lx:") | not)] | length' "$KV_TMP")"
+          rm -f "$KV_TMP"
+          test "$UNEXPECTED_NON_LX_KV_KEYS" = "0"
+          echo "UNEXPECTED_NON_LX_KV_KEYS=0"
 
       - name: Verify public HTTP surfaces
         shell: bash
         run: |
           set -euo pipefail
           curl -fsS "$LEADX_BASE_URL/api/health?verify=$GITHUB_SHA" -o artifacts/post-release/health.json
-          jq -e '.status == "ok" and .service == "leadx" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100' artifacts/post-release/health.json >/dev/null
+          jq -e '.status == "ok" and .service == "leadx" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100 and .write_protection == "ready"' artifacts/post-release/health.json >/dev/null
           curl -fsS "$LEADX_BASE_URL/api/auth/session?verify=$GITHUB_SHA" -o artifacts/post-release/session.json
           jq -e '.authenticated == false and .mode == "preview"' artifacts/post-release/session.json >/dev/null
           curl -fsS "$LEADX_BASE_URL/?verify=$GITHUB_SHA" -o artifacts/post-release/index.html
