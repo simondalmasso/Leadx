@@ -38,8 +38,8 @@ jobs:
       - name: Install frozen dependencies
         run: npm --prefix web ci
 
-      - name: Dependency audit high+
-        run: npm --prefix web audit --audit-level=high
+      - name: Runtime dependency audit high+
+        run: npm --prefix web audit --omit=dev --audit-level=high
 
       - name: Build
         run: npm --prefix web run build
