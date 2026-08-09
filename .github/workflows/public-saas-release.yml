@@ -43,6 +43,7 @@ jobs:
       - name: Pre-deploy validation
         run: |
           npm --prefix web ci
+          npm --prefix web audit --audit-level=high
           npm --prefix web run build
           npm --prefix web test
           npm --prefix web run typecheck
@@ -55,13 +56,14 @@ jobs:
           cd web
           npx playwright install --with-deps chromium
 
-      - name: Deploy once, validate, purge legacy KV and verify
+      - name: Deploy once and validate without data mutation
         shell: bash
         run: |
           set -Eeuo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           ARTIFACT_DIR="$RUNNER_TEMP/leadx-release"
+          KV_TMP="$RUNNER_TEMP/leadx-kv-keys.json"
           mkdir -p "$ARTIFACT_DIR"
 
           deployments() {
@@ -78,19 +80,27 @@ jobs:
               else
                 error("Unexpected Cloudflare deployments response schema")
               end;
+            def latest_deployment:
+              deployments | sort_by(.created_on // "") | reverse | .[0];
           '
 
           deployments > "$ARTIFACT_DIR/before.json"
           jq -e "${deployments_jq} .success == true and (deployments | length) > 0" "$ARTIFACT_DIR/before.json" >/dev/null
-          PREVIOUS_DEPLOYMENT_ID="$(jq -r "${deployments_jq} deployments[0].id // empty" "$ARTIFACT_DIR/before.json")"
-          PREVIOUS_VERSION_ID="$(jq -r "${deployments_jq} deployments[0].versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/before.json" | head -n1)"
+          PREVIOUS_DEPLOYMENT_ID="$(jq -r "${deployments_jq} latest_deployment.id // empty" "$ARTIFACT_DIR/before.json")"
+          PREVIOUS_VERSION_ID="$(jq -r "${deployments_jq} latest_deployment.versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/before.json" | head -n1)"
           test -n "$PREVIOUS_DEPLOYMENT_ID"
           test -n "$PREVIOUS_VERSION_ID"
 
-          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$ARTIFACT_DIR/kv-before.json"
-          jq '[.[].name | select(startswith("lx:") | not)]' "$ARTIFACT_DIR/kv-before.json" > "$ARTIFACT_DIR/legacy-keys.json"
-          LEGACY_KEY_COUNT="$(jq 'length' "$ARTIFACT_DIR/legacy-keys.json")"
-          echo "LEGACY_KV_KEYS_BEFORE=$LEGACY_KEY_COUNT"
+          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$KV_TMP"
+          UNEXPECTED_NON_LX_KV_KEYS="$(jq '[.[].name | select(startswith("lx:") | not)] | length' "$KV_TMP")"
+          rm -f "$KV_TMP"
+          echo "UNEXPECTED_NON_LX_KV_KEYS=$UNEXPECTED_NON_LX_KV_KEYS"
+          if [ "$UNEXPECTED_NON_LX_KV_KEYS" != "0" ]; then
+            echo "KV_NAMESPACE_SAFETY=BLOCKED"
+            echo "Release refuses to mutate or delete unexpected KV keys. Inventory them explicitly before another deploy."
+            exit 1
+          fi
+          echo "KV_NAMESPACE_SAFETY=PASS"
 
           rollback() {
             echo "ROLLBACK_REQUESTED=YES"
@@ -98,7 +108,7 @@ jobs:
             for _ in $(seq 1 60); do
               deployments > "$ARTIFACT_DIR/rollback.json"
               jq -e "${deployments_jq} .success == true and (deployments | length) > 0" "$ARTIFACT_DIR/rollback.json" >/dev/null
-              restored="$(jq -r "${deployments_jq} deployments[0].versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/rollback.json" | head -n1)"
+              restored="$(jq -r "${deployments_jq} latest_deployment.versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/rollback.json" | head -n1)"
               if [ "$restored" = "$PREVIOUS_VERSION_ID" ]; then
                 echo "ROLLBACK_STATE=completed"
                 return 0
@@ -117,19 +127,16 @@ jobs:
           npx --yes wrangler@${WRANGLER_VERSION} deploy 2>&1 | tee "$ARTIFACT_DIR/deploy.log"
           DEPLOY_EXIT=${PIPESTATUS[0]}
           set -e
-          if [ "$DEPLOY_EXIT" -ne 0 ]; then
-            echo "DEPLOY_STATE=failed_before_verification"
-            exit "$DEPLOY_EXIT"
-          fi
+          echo "DEPLOY_CLI_EXIT=$DEPLOY_EXIT"
 
           NEW_DEPLOYMENT_ID=""
           NEW_VERSION_ID=""
           for _ in $(seq 1 90); do
-            deployments > "$ARTIFACT_DIR/after.json"
-            jq -e "${deployments_jq} .success == true and (deployments | length) > 0" "$ARTIFACT_DIR/after.json" >/dev/null
-            candidate_deployment="$(jq -r "${deployments_jq} deployments[0].id // empty" "$ARTIFACT_DIR/after.json")"
-            candidate_version="$(jq -r "${deployments_jq} deployments[0].versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/after.json" | head -n1)"
-            version_count="$(jq "${deployments_jq} deployments[0].versions | length" "$ARTIFACT_DIR/after.json")"
+            deployments > "$ARTIFACT_DIR/after.json" || { sleep 2; continue; }
+            jq -e "${deployments_jq} .success == true and (deployments | length) > 0" "$ARTIFACT_DIR/after.json" >/dev/null || { sleep 2; continue; }
+            candidate_deployment="$(jq -r "${deployments_jq} latest_deployment.id // empty" "$ARTIFACT_DIR/after.json")"
+            candidate_version="$(jq -r "${deployments_jq} latest_deployment.versions[]? | select(.percentage == 100) | .version_id" "$ARTIFACT_DIR/after.json" | head -n1)"
+            version_count="$(jq "${deployments_jq} latest_deployment.versions | length" "$ARTIFACT_DIR/after.json")"
             if [ "$candidate_deployment" != "$PREVIOUS_DEPLOYMENT_ID" ] && [ "$version_count" = "1" ] && [ -n "$candidate_version" ]; then
               NEW_DEPLOYMENT_ID="$candidate_deployment"
               NEW_VERSION_ID="$candidate_version"
@@ -139,10 +146,14 @@ jobs:
           done
 
           if [ -z "$NEW_DEPLOYMENT_ID" ] || [ -z "$NEW_VERSION_ID" ]; then
-            rollback
-            exit 1
+            echo "DEPLOY_REMOTE_RECONCILIATION=NO_NEW_DEPLOYMENT"
+            exit "$([ "$DEPLOY_EXIT" -ne 0 ] && echo "$DEPLOY_EXIT" || echo 1)"
           fi
 
+          echo "DEPLOY_REMOTE_RECONCILIATION=PASS"
+          if [ "$DEPLOY_EXIT" -ne 0 ]; then
+            echo "DEPLOY_CLI_AMBIGUOUS_BUT_REMOTE_ACCEPTED=YES"
+          fi
           echo "NEW_DEPLOYMENT_ID=$NEW_DEPLOYMENT_ID"
           echo "NEW_VERSION_ID=$NEW_VERSION_ID"
 
@@ -150,7 +161,7 @@ jobs:
           for attempt in $(seq 1 60); do
             curl -fsS "$LEADX_BASE_URL/api/health?release=$GITHUB_SHA&attempt=$attempt" > "$ARTIFACT_DIR/health.json" || true
             curl -fsS "$LEADX_BASE_URL/api/auth/session?release=$GITHUB_SHA&attempt=$attempt" > "$ARTIFACT_DIR/session.json" || true
-            if jq -e '.status == "ok" and .service == "leadx" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100' "$ARTIFACT_DIR/health.json" >/dev/null 2>&1 \
+            if jq -e '.status == "ok" and .service == "leadx" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100 and .write_protection == "ready"' "$ARTIFACT_DIR/health.json" >/dev/null 2>&1 \
               && jq -e '.authenticated == false and .mode == "preview"' "$ARTIFACT_DIR/session.json" >/dev/null 2>&1; then
               release_ready=true
               echo "RUNTIME_PROPAGATION_ATTEMPT=$attempt"
@@ -194,29 +205,18 @@ jobs:
             rollback
             exit 1
           fi
-          echo "PRE_PURGE_PRODUCTION_SMOKE=PASS"
+          echo "PRODUCTION_BROWSER_SMOKE=PASS"
 
-          if [ "$LEGACY_KEY_COUNT" -gt 0 ]; then
-            npx --yes wrangler@${WRANGLER_VERSION} kv bulk delete "$ARTIFACT_DIR/legacy-keys.json" --binding LEADX_KV --remote --force
-          fi
+          npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$KV_TMP"
+          UNEXPECTED_NON_LX_KV_KEYS_AFTER="$(jq '[.[].name | select(startswith("lx:") | not)] | length' "$KV_TMP")"
+          rm -f "$KV_TMP"
+          echo "UNEXPECTED_NON_LX_KV_KEYS_AFTER=$UNEXPECTED_NON_LX_KV_KEYS_AFTER"
+          test "$UNEXPECTED_NON_LX_KV_KEYS_AFTER" = "0"
+          echo "KV_NAMESPACE_POST_DEPLOY=PASS"
 
-          REMAINING_LEGACY=""
-          for attempt in $(seq 1 30); do
-            npx --yes wrangler@${WRANGLER_VERSION} kv key list --binding LEADX_KV --remote > "$ARTIFACT_DIR/kv-after.json"
-            REMAINING_LEGACY="$(jq '[.[].name | select(startswith("lx:") | not)] | length' "$ARTIFACT_DIR/kv-after.json")"
-            if [ "$REMAINING_LEGACY" = "0" ]; then
-              echo "KV_PURGE_PROPAGATION_ATTEMPT=$attempt"
-              break
-            fi
-            sleep 2
-          done
-          test "$REMAINING_LEGACY" = "0"
-
-          curl -fsS "$LEADX_BASE_URL/api/health?post_purge=$GITHUB_SHA" | jq -e '.release == "leadx-public-freemium-v1" and .free_contact_limit == 100' >/dev/null
-          curl -fsS "$LEADX_BASE_URL/api/auth/session?post_purge=$GITHUB_SHA" | jq -e '.authenticated == false and .mode == "preview"' >/dev/null
-          echo "LEGACY_KV_KEYS_PURGED=$LEGACY_KEY_COUNT"
-          echo "REMAINING_LEGACY_KV_KEYS=0"
-          echo "POST_PURGE_SMOKE=PASS"
+          curl -fsS "$LEADX_BASE_URL/api/health?post_release=$GITHUB_SHA" | jq -e '.status == "ok" and .release == "leadx-public-freemium-v1" and .free_contact_limit == 100 and .write_protection == "ready"' >/dev/null
+          curl -fsS "$LEADX_BASE_URL/api/auth/session?post_release=$GITHUB_SHA" | jq -e '.authenticated == false and .mode == "preview"' >/dev/null
+          echo "POST_RELEASE_HTTP=PASS"
           echo "PRODUCTION_RELEASE=PASS"
 
       - name: Upload release evidence
