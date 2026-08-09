@@ -11,6 +11,7 @@ const previewSizes = [
 ];
 
 const now = Date.now();
+const dateKey = (days = 0) => new Date(now + days * 86400000).toISOString().slice(0, 10);
 const statusOrder = ["Nuevo", "Contactado", "Calificado", "Propuesta", "Cliente", "Pausado"];
 const longContact = {
   id: "qa-long-1",
@@ -22,6 +23,8 @@ const longContact = {
   source: "Referido",
   notes: "Fixture sintético exclusivo de QA visual.",
   next_action: "Confirmar alcance final, responsables, presupuesto y fecha exacta de implementación antes del próximo comité comercial",
+  next_action_due_at: dateKey(0),
+  last_signal_at: new Date(now).toISOString(),
   created_at: new Date(now).toISOString(),
   updated_at: new Date(now).toISOString(),
 };
@@ -37,8 +40,10 @@ function contactsFixture(count) {
     source: index % 2 ? "Web" : "Referido",
     notes: "Fixture sintético exclusivo de QA visual.",
     next_action: index % 3 ? "Retomar conversación y confirmar siguiente paso" : "Enviar propuesta y pedir confirmación",
+    next_action_due_at: index % 4 === 0 ? dateKey(-1) : dateKey(index % 7),
+    last_signal_at: new Date(now - index * 3600000).toISOString(),
     created_at: new Date(now - index * 3600000).toISOString(),
-    updated_at: new Date(now - index * 3600000).toISOString(),
+    updated_at: new Date(now - index * 1800000).toISOString(),
   }));
 }
 
@@ -101,6 +106,7 @@ test("workspace long-content desktop", async ({ page }, testInfo) => {
   await expect(page.getByRole("heading", { name: /Qué tiene que pasar después/i })).toBeVisible();
   await expect(page.getByText(longContact.name)).toBeVisible();
   await expect(page.getByText(longContact.next_action)).toBeVisible();
+  await expect(page.getByText("Vence hoy")).toBeVisible();
   await assertNoOverflow(page);
   await page.screenshot({ path: testInfo.outputPath("workspace-desktop-long.png"), fullPage: true });
 });
@@ -116,6 +122,7 @@ test("workspace mobile + editor sheet", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: /Nuevo contacto/i }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByText(/Nombre, estado y próxima acción primero/i)).toBeVisible();
+  await expect(page.getByLabel("Fecha objetivo")).toBeDisabled();
   await page.waitForTimeout(420);
   await assertNoOverflow(page);
   await assertMobileTargets(page);
