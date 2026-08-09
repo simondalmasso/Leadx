@@ -30,7 +30,9 @@
 .queue-view--active strong { color: var(--signal-primary); }
 
 .contact-next__meta { color: var(--text-tertiary) !important; }
-.contact-next__meta--missing { color: var(--signal-primary) !important; }
+.contact-next__meta--missing,
+.contact-next__meta--today { color: var(--signal-primary) !important; }
+.contact-next__meta--overdue { color: var(--danger) !important; }
 
 .state-panel--empty-view { border-top: 1px solid var(--border-subtle); }
 
